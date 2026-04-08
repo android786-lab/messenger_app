@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "164929334949",
+    "project_id": "facebookmessenger-e6b07",
+    "storage_bucket": "facebookmessenger-e6b07.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:164929334949:android:44c7604312b95eee15274c",
+        "android_client_info": {
+          "package_name": "com.example.facebook_messanger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAwGl4e8ivW_J_uuMn6vYNvKuY1Hj6kosI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
