@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/auth_controller.dart';
+import '../../controllers/block_controller.dart';
 import '../../controllers/chat_controller.dart';
 import '../../controllers/contacts_controller.dart';
 import '../../core/theme/app_theme.dart';
@@ -13,6 +14,7 @@ import '../auth/login_screen.dart';
 import '../contacts/add_contact_screen.dart';
 import '../group/create_group_screen.dart';
 import '../profile/profile_screen.dart';
+import '../settings/settings_screen.dart';
 import 'chat_screen.dart';
 import 'new_chat_screen.dart';
 
@@ -42,6 +44,10 @@ class _ChatListScreenState extends State<ChatListScreen>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<ChatController>(context, listen: false).listenToUserChats();
+      // Initialize blocked users stream (requires auth — safe here since
+      // ChatListScreen is only shown when authenticated)
+      Provider.of<BlockController>(context, listen: false)
+          .initializeBlockedUsers();
     });
   }
 
@@ -61,26 +67,72 @@ class _ChatListScreenState extends State<ChatListScreen>
         _searchResults.clear();
       });
     } else {
+      setState(() => _isSearching = true);
       _performSearch(query);
     }
   }
 
-  void _performSearch(String query) {
+  Future<void> _performSearch(String query) async {
     final chatController = Provider.of<ChatController>(context, listen: false);
+    final authController = Provider.of<AuthController>(context, listen: false);
+    final contactsController =
+        Provider.of<ContactsController>(context, listen: false);
+    final currentUserId = authController.currentUser?.uid ?? '';
     final searchLower = query.toLowerCase();
 
-    final results = chatController.chats.where((chat) {
-      final chatName = chat.isGroup == true
-          ? (chat.groupName ?? 'Group Chat').toLowerCase()
-          : (chat.participants.isNotEmpty ? chat.participants.first : 'Unknown')
-                .toLowerCase();
-      return chatName.contains(searchLower);
-    }).toList();
+    // Ensure contacts are loaded
+    await contactsController.loadContacts();
 
-    setState(() {
-      _isSearching = true;
-      _searchResults = results;
-    });
+    final results = <ChatModel>[];
+
+    for (final chat in chatController.chats) {
+      String displayName;
+
+      if (chat.isGroup) {
+        displayName = (chat.groupName ?? 'Group Chat').toLowerCase();
+      } else {
+        // Resolve the other participant's display name
+        final otherUserId = chat.participants.firstWhere(
+          (id) => id != currentUserId,
+          orElse: () => '',
+        );
+
+        if (otherUserId.isEmpty) continue;
+
+        // Try to find saved contact name first
+        String resolvedName = otherUserId;
+        try {
+          final user = await AuthService().getUserById(otherUserId);
+          if (user != null) {
+            resolvedName = user.name;
+            // Check if saved as a contact
+            if (user.phone != null && user.phone!.isNotEmpty) {
+              try {
+                final contact = contactsController.contacts.firstWhere(
+                  (c) =>
+                      c.phone.replaceAll(RegExp(r'\D'), '') ==
+                      user.phone!.replaceAll(RegExp(r'\D'), ''),
+                );
+                resolvedName = contact.name;
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+
+        displayName = resolvedName.toLowerCase();
+      }
+
+      // Also search in last message content
+      final lastMsg = chat.lastMessage.toLowerCase();
+
+      if (displayName.contains(searchLower) || lastMsg.contains(searchLower)) {
+        results.add(chat);
+      }
+    }
+
+    if (mounted) {
+      setState(() => _searchResults = results);
+    }
   }
 
   void _clearSearch() {
@@ -910,6 +962,16 @@ class _ChatListScreenState extends State<ChatListScreen>
             ],
           ),
         ),
+        PopupMenuItem<String>(
+          value: 'settings',
+          child: Row(
+            children: [
+              Icon(Icons.settings_outlined, color: AppTheme.lightPrimaryColor),
+              const SizedBox(width: 12),
+              const Text('Settings'),
+            ],
+          ),
+        ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'sign_out',
@@ -956,6 +1018,12 @@ class _ChatListScreenState extends State<ChatListScreen>
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const ProfileScreen()),
+        );
+        break;
+      case 'settings':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SettingsScreen()),
         );
         break;
       case 'sign_out':
@@ -1005,88 +1073,51 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
           ),
 
-          // Search Suggestions
+          // Search Results
           if (_isSearching) ...[
-            SizedBox(
-              height: 300,
+            Expanded(
               child: _searchResults.isEmpty
                   ? const Center(
-                      child: Text(
-                        'No results found',
-                        style: TextStyle(
-                          color: AppTheme.lightTextSecondary,
-                          fontSize: 16,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _searchResults.length,
-                      itemBuilder: (context, index) {
-                        final chat = _searchResults[index];
-                        return ListTile(
-                          leading: CircleAvatar(
-                            radius: 25,
-                            backgroundColor: AppTheme.lightPrimaryColor
-                                .withValues(alpha: 0.1),
-                            child: chat.isGroup == true
-                                ? const Icon(
-                                    Icons.group,
-                                    color: AppTheme.lightPrimaryColor,
-                                  )
-                                : Text(
-                                    chat.participants.isNotEmpty
-                                        ? chat.participants.first
-                                              .substring(0, 1)
-                                              .toUpperCase()
-                                        : 'U',
-                                    style: const TextStyle(
-                                      color: AppTheme.lightPrimaryColor,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                          ),
-                          title: Text(
-                            chat.isGroup == true
-                                ? (chat.groupName ?? 'Group Chat')
-                                : (chat.participants.isNotEmpty
-                                      ? chat.participants.first
-                                      : 'Unknown'),
-                            style: const TextStyle(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.search_off,
+                              size: 56, color: AppTheme.lightTextSecondary),
+                          SizedBox(height: 12),
+                          Text(
+                            'No results found',
+                            style: TextStyle(
+                              color: AppTheme.lightTextSecondary,
                               fontSize: 16,
-                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          subtitle: chat.isGroup == true
-                              ? Text(
-                                  '${chat.participants.length} members',
-                                  style: const TextStyle(
-                                    color: AppTheme.lightTextSecondary,
-                                    fontSize: 14,
-                                  ),
-                                )
-                              : null,
-                          onTap: () {
-                            _clearSearch();
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ChatScreen(
-                                  chatId: chat.chatId,
-                                  isGroup: chat.isGroup,
-                                  chatTitle: chat.isGroup
-                                      ? (chat.groupName ?? 'Group Chat')
-                                      : (chat.participants.isNotEmpty
-                                            ? chat.participants.first
-                                            : 'Unknown'),
-                                ),
-                              ),
-                            );
-                          },
+                        ],
+                      ),
+                    )
+                  : _SearchResultsList(
+                      results: _searchResults,
+                      currentUserId:
+                          Provider.of<AuthController>(context, listen: false)
+                                  .currentUser
+                                  ?.uid ??
+                              '',
+                      onTap: (chat) {
+                        _clearSearch();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChatScreen(
+                              chatId: chat.chatId,
+                              isGroup: chat.isGroup,
+                              chatTitle: chat.isGroup
+                                  ? (chat.groupName ?? 'Group Chat')
+                                  : 'Chat',
+                            ),
+                          ),
                         );
                       },
                     ),
             ),
-            const Divider(height: 1),
           ],
 
           // Filter Chips (only show when not searching and not in archived view)
@@ -1264,30 +1295,13 @@ class _ChatsTab extends StatefulWidget {
 }
 
 class _ChatsTabState extends State<_ChatsTab> {
-  List<LocalContact> _contacts = [];
-  bool _contactsLoaded = false;
-
   @override
   void initState() {
     super.initState();
-    // Defer loading to avoid setState during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadContacts();
+      // Pre-load contacts for ChatTile display name resolution
+      Provider.of<ContactsController>(context, listen: false).loadContacts();
     });
-  }
-
-  Future<void> _loadContacts() async {
-    final contactsController = Provider.of<ContactsController>(
-      context,
-      listen: false,
-    );
-    await contactsController.loadContacts();
-    if (mounted) {
-      setState(() {
-        _contacts = contactsController.contacts;
-        _contactsLoaded = true;
-      });
-    }
   }
 
   List<ChatModel> _getFilteredChats(
@@ -1467,6 +1481,148 @@ class _ChatsTabState extends State<_ChatsTab> {
           isSelectionMode: widget.isSelectionMode,
           isSelected: widget.selectedChatIds.contains(chat.chatId),
           onSelectionToggle: widget.onSelectionToggle,
+        );
+      },
+    );
+  }
+}
+
+// ── Search Results Widget ──────────────────────────────────────────────────────
+// Resolves real display names for 1-on-1 chats using AuthService + contacts
+
+class _SearchResultsList extends StatefulWidget {
+  final List<ChatModel> results;
+  final String currentUserId;
+  final void Function(ChatModel) onTap;
+
+  const _SearchResultsList({
+    required this.results,
+    required this.currentUserId,
+    required this.onTap,
+  });
+
+  @override
+  State<_SearchResultsList> createState() => _SearchResultsListState();
+}
+
+class _SearchResultsListState extends State<_SearchResultsList> {
+  // Cache resolved names so we don't re-fetch on every rebuild
+  final Map<String, String> _nameCache = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveNames();
+  }
+
+  @override
+  void didUpdateWidget(_SearchResultsList old) {
+    super.didUpdateWidget(old);
+    if (old.results != widget.results) _resolveNames();
+  }
+
+  Future<void> _resolveNames() async {
+    final contactsController =
+        Provider.of<ContactsController>(context, listen: false);
+    await contactsController.loadContacts();
+
+    for (final chat in widget.results) {
+      if (chat.isGroup) {
+        _nameCache[chat.chatId] = chat.groupName ?? 'Group Chat';
+        continue;
+      }
+
+      final otherUserId = chat.participants.firstWhere(
+        (id) => id != widget.currentUserId,
+        orElse: () => '',
+      );
+      if (otherUserId.isEmpty) continue;
+      if (_nameCache.containsKey(chat.chatId)) continue;
+
+      try {
+        final user = await AuthService().getUserById(otherUserId);
+        if (user == null) continue;
+
+        String name = user.name;
+        if (user.phone != null && user.phone!.isNotEmpty) {
+          try {
+            final contact = contactsController.contacts.firstWhere(
+              (c) =>
+                  c.phone.replaceAll(RegExp(r'\D'), '') ==
+                  user.phone!.replaceAll(RegExp(r'\D'), ''),
+            );
+            name = contact.name;
+          } catch (_) {}
+        }
+        _nameCache[chat.chatId] = name;
+      } catch (_) {}
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      itemCount: widget.results.length,
+      separatorBuilder: (_, __) =>
+          const Divider(height: 1, indent: 72, endIndent: 16),
+      itemBuilder: (context, index) {
+        final chat = widget.results[index];
+        final name = _nameCache[chat.chatId] ??
+            (chat.isGroup ? (chat.groupName ?? 'Group Chat') : '...');
+        final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+        return ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: CircleAvatar(
+            radius: 26,
+            backgroundColor: AppTheme.lightPrimaryColor,
+            backgroundImage: chat.isGroup && chat.groupPhotoUrl != null
+                ? NetworkImage(chat.groupPhotoUrl!)
+                : null,
+            child: (chat.isGroup && chat.groupPhotoUrl != null)
+                ? null
+                : (chat.isGroup
+                    ? const Icon(Icons.group, color: Colors.white)
+                    : Text(
+                        initial,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      )),
+          ),
+          title: Text(
+            name,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.lightTextPrimary,
+            ),
+          ),
+          subtitle: chat.lastMessage.isNotEmpty
+              ? Text(
+                  chat.lastMessage,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.lightTextSecondary,
+                  ),
+                )
+              : (chat.isGroup
+                  ? Text(
+                      '${chat.participants.length} members',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.lightTextSecondary,
+                      ),
+                    )
+                  : null),
+          onTap: () => widget.onTap(chat),
         );
       },
     );

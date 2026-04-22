@@ -23,9 +23,11 @@ class _NewChatScreenState extends State<NewChatScreen> {
   List<LocalContact> _notOnApp = [];
   List<Map<String, dynamic>> _filteredOnApp = [];
   List<LocalContact> _filteredNotOnApp = [];
+  List<UserModel> _appSearchResults = []; // direct app user search results
   bool _isLoading = true;
-  final TextEditingController _searchController = TextEditingController();
+  bool _isSearchingApp = false;
   bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -42,24 +44,48 @@ class _NewChatScreenState extends State<NewChatScreen> {
   }
 
   void _onSearchChanged() {
-    final query = _searchController.text.toLowerCase();
+    final query = _searchController.text.toLowerCase().trim();
     setState(() {
       _isSearching = query.isNotEmpty;
       if (query.isEmpty) {
         _filteredOnApp = List.from(_onApp);
         _filteredNotOnApp = List.from(_notOnApp);
+        _appSearchResults = [];
+        _isSearchingApp = false;
       } else {
+        // Filter saved contacts by name or phone
         _filteredOnApp = _onApp.where((entry) {
           final contact = entry['contact'] as LocalContact;
           return contact.name.toLowerCase().contains(query) ||
-              contact.phone.toLowerCase().contains(query);
+              contact.phone.replaceAll(RegExp(r'\D'), '').contains(
+                  query.replaceAll(RegExp(r'\D'), ''));
         }).toList();
         _filteredNotOnApp = _notOnApp.where((contact) {
           return contact.name.toLowerCase().contains(query) ||
-              contact.phone.toLowerCase().contains(query);
+              contact.phone.replaceAll(RegExp(r'\D'), '').contains(
+                  query.replaceAll(RegExp(r'\D'), ''));
         }).toList();
+        // Also search app users by name/email/phone
+        _searchAppUsers(query);
       }
     });
+  }
+
+  Future<void> _searchAppUsers(String query) async {
+    setState(() => _isSearchingApp = true);
+    final authService = AuthService();
+    final results = await authService.searchUsers(query);
+    // Exclude users already shown via saved contacts
+    final savedUids = _onApp
+        .map((e) => (e['user'] as UserModel).uid)
+        .toSet();
+    final filtered = results.where((u) => !savedUids.contains(u.uid)).toList();
+    if (mounted) {
+      setState(() {
+        _appSearchResults = filtered;
+        _isSearchingApp = false;
+      });
+    }
   }
 
   Future<void> _loadContacts() async {
@@ -172,7 +198,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Search contacts...',
+          hintText: 'Search by name, phone or email...',
           hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 16),
           prefixIcon: Icon(Icons.search, color: Colors.grey.shade500),
           suffixIcon: _searchController.text.isNotEmpty
@@ -220,19 +246,26 @@ class _NewChatScreenState extends State<NewChatScreen> {
           const Divider(height: 1, indent: 72),
         ],
 
-        // On this app section
+        // On this app section (saved contacts)
         if (onAppList.isNotEmpty) ...[
-          _sectionHeader(
-            _isSearching ? 'Contacts on this app' : 'Contacts on this app',
-          ),
+          _sectionHeader('Contacts on this app'),
           ...onAppList.map((entry) => _buildContactTile(entry)),
+        ],
+
+        // App-wide search results (users not in saved contacts)
+        if (_isSearching && _isSearchingApp)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_isSearching && _appSearchResults.isNotEmpty) ...[
+          _sectionHeader('Other users on this app'),
+          ..._appSearchResults.map((user) => _buildAppUserTile(user)),
         ],
 
         // Invite section
         if (notOnAppList.isNotEmpty) ...[
-          _sectionHeader(
-            _isSearching ? 'Invite to this app' : 'Invite to this app',
-          ),
+          _sectionHeader('Invite to this app'),
           ...notOnAppList.map((contact) => _buildInviteTile(contact)),
         ],
       ],
@@ -440,6 +473,95 @@ class _NewChatScreenState extends State<NewChatScreen> {
                         style: TextStyle(
                           fontSize: 14,
                           color: isOnline
+                              ? const Color(0xFF00C853)
+                              : Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Tile for app users found via name/email/phone search (not in saved contacts)
+  Widget _buildAppUserTile(UserModel user) {
+    return StreamBuilder<UserModel?>(
+      stream: AuthService().streamUserById(user.uid),
+      initialData: user,
+      builder: (context, snapshot) {
+        final u = snapshot.data ?? user;
+        return InkWell(
+          onTap: () => _startChat(u, u.name),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 26,
+                      backgroundColor: AppTheme.lightPrimaryColor,
+                      backgroundImage: u.photoUrl != null
+                          ? NetworkImage(u.photoUrl!)
+                          : null,
+                      child: u.photoUrl == null
+                          ? Text(
+                              u.name.isNotEmpty
+                                  ? u.name[0].toUpperCase()
+                                  : 'U',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : null,
+                    ),
+                    if (u.isOnline)
+                      Positioned(
+                        right: 2,
+                        bottom: 2,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00C853),
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        u.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.lightTextPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        u.isOnline
+                            ? 'Online'
+                            : (u.phone?.isNotEmpty == true
+                                ? u.phone!
+                                : u.email),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: u.isOnline
                               ? const Color(0xFF00C853)
                               : Colors.grey.shade500,
                         ),

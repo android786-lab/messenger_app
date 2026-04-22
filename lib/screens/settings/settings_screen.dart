@@ -8,6 +8,8 @@ import '../../controllers/theme_controller.dart';
 import '../../widgets/custom_button.dart';
 import 'app_lock_settings_screen.dart';
 import 'blocked_users_screen.dart';
+import 'chat_settings_screen.dart';
+import 'privacy_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -46,6 +48,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Theme Section
           _buildSectionHeader('Appearance'),
           _buildDarkModeToggle(),
+          const SizedBox(height: 8),
+          _buildChatSettingsTile(),
           const SizedBox(height: 24),
 
           // Account Section
@@ -55,6 +59,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // Privacy Section
           _buildSectionHeader('Privacy'),
+          _buildPrivacyTile(),
+          const SizedBox(height: 8),
           _buildPrivacyOptions(),
           const SizedBox(height: 24),
 
@@ -159,6 +165,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildChatSettingsTile() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(Icons.chat_bubble_outline,
+            color: Theme.of(context).colorScheme.onSurface),
+        title: Text('Chat Settings',
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 16)),
+        subtitle: const Text('Font size, wallpaper'),
+        trailing: Icon(Icons.arrow_forward_ios,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.7),
+            size: 16),
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(
+                builder: (_) => const ChatSettingsScreen())),
+      ),
+    );
+  }
+
+  Widget _buildPrivacyTile() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(Icons.privacy_tip_outlined,
+            color: Theme.of(context).colorScheme.onSurface),
+        title: Text('Privacy Settings',
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 16)),
+        subtitle: const Text('Last seen, profile photo, about'),
+        trailing: Icon(Icons.arrow_forward_ios,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.7),
+            size: 16),
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(
+                builder: (_) => const PrivacySettingsScreen())),
+      ),
     );
   }
 

@@ -230,6 +230,8 @@ class ChatService {
         isGroup: true,
         groupName: groupName,
         groupPhotoUrl: groupPhotoUrl,
+        admins: [currentUserId],
+        createdBy: currentUserId,
       );
 
       await _firestore
@@ -469,5 +471,400 @@ class ChatService {
           }
           return false;
         });
+  }
+
+  // Get a single chat document as a stream
+  Stream<ChatModel?> getChatStream(String chatId) {
+    return _firestore
+        .collection(AppConstants.chatsCollection)
+        .doc(chatId)
+        .snapshots()
+        .map((doc) {
+          if (doc.exists) return ChatModel.fromMap(doc.data()!);
+          return null;
+        });
+  }
+
+  // Make a member a group admin
+  Future<void> makeGroupAdmin(String chatId, String memberId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({
+            'admins': FieldValue.arrayUnion([memberId]),
+          });
+    } catch (e) {
+      throw Exception('Error making admin: ${e.toString()}');
+    }
+  }
+
+  // Remove admin role from a member
+  Future<void> removeGroupAdmin(String chatId, String memberId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({
+            'admins': FieldValue.arrayRemove([memberId]),
+          });
+    } catch (e) {
+      throw Exception('Error removing admin: ${e.toString()}');
+    }
+  }
+
+  // Update group name
+  Future<void> updateGroupName(String chatId, String newName) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({'groupName': newName});
+    } catch (e) {
+      throw Exception('Error updating group name: ${e.toString()}');
+    }
+  }
+
+  // Exit group (remove self from participants and admins)
+  Future<void> exitGroup(String chatId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({
+            'participants': FieldValue.arrayRemove([currentUserId]),
+            'admins': FieldValue.arrayRemove([currentUserId]),
+            'unreadCount.$currentUserId': FieldValue.delete(),
+          });
+    } catch (e) {
+      throw Exception('Error exiting group: ${e.toString()}');
+    }
+  }
+
+  // Pin a message
+  Future<void> pinMessage(String chatId, String messageId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({'isPinned': true});
+    } catch (e) {
+      throw Exception('Error pinning message: ${e.toString()}');
+    }
+  }
+
+  // Unpin a message
+  Future<void> unpinMessage(String chatId, String messageId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({'isPinned': false});
+    } catch (e) {
+      throw Exception('Error unpinning message: ${e.toString()}');
+    }
+  }
+
+  // Delete message for everyone (hard delete)
+  Future<void> deleteMessageForEveryone(
+      String chatId, String messageId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({
+            'content': 'This message was deleted',
+            'type': 'deleted',
+            'mediaUrl': FieldValue.delete(),
+            'isPinned': false,
+          });
+    } catch (e) {
+      throw Exception('Error deleting message: ${e.toString()}');
+    }
+  }
+
+  // Delete message for me only (soft delete — add uid to deletedFor list)
+  Future<void> deleteMessageForMe(String chatId, String messageId) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({
+            'deletedFor': FieldValue.arrayUnion([currentUserId]),
+          });
+    } catch (e) {
+      throw Exception('Error deleting message for me: ${e.toString()}');
+    }
+  }
+
+  // Star / unstar a message
+  Future<void> toggleStarMessage(
+      String chatId, String messageId, bool star) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({'isStarred': star});
+    } catch (e) {
+      throw Exception('Error starring message: ${e.toString()}');
+    }
+  }
+
+  // Send a reply message
+  Future<void> sendReplyMessage({
+    required String chatId,
+    required String content,
+    required String senderName,
+    required String replyToMessageId,
+    required String replyToSenderName,
+    required String replyToContent,
+    required String replyToType,
+    String type = 'text',
+    String? mediaUrl,
+    int? voiceDuration,
+    String? fileName,
+    String? fileSize,
+    String? fileExtension,
+  }) async {
+    try {
+      final messageId = _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc()
+          .id;
+
+      final message = MessageModel(
+        messageId: messageId,
+        senderId: currentUserId,
+        senderName: senderName,
+        content: content,
+        type: type,
+        timestamp: DateTime.now(),
+        mediaUrl: mediaUrl,
+        voiceDuration: voiceDuration,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileExtension: fileExtension,
+        replyTo: ReplyInfo(
+          messageId: replyToMessageId,
+          senderName: replyToSenderName,
+          content: replyToContent,
+          type: replyToType,
+        ),
+      );
+
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .set(message.toMap());
+
+      await updateChatLastMessage(chatId, message);
+    } catch (e) {
+      throw Exception('Error sending reply: ${e.toString()}');
+    }
+  }
+
+  // Forward a message to another chat
+  Future<void> forwardMessage({
+    required String toChatId,
+    required String content,
+    required String senderName,
+    required String originalSenderName,
+    required String type,
+    String? mediaUrl,
+    String? fileName,
+    String? fileSize,
+    String? fileExtension,
+    int? voiceDuration,
+  }) async {
+    try {
+      final messageId = _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(toChatId)
+          .collection(AppConstants.messagesCollection)
+          .doc()
+          .id;
+
+      final message = MessageModel(
+        messageId: messageId,
+        senderId: currentUserId,
+        senderName: senderName,
+        content: content,
+        type: type,
+        timestamp: DateTime.now(),
+        mediaUrl: mediaUrl,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileExtension: fileExtension,
+        voiceDuration: voiceDuration,
+        forwardedFrom: originalSenderName,
+      );
+
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(toChatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .set(message.toMap());
+
+      await updateChatLastMessage(toChatId, message);
+    } catch (e) {
+      throw Exception('Error forwarding message: ${e.toString()}');
+    }
+  }
+
+  // Mute / unmute a chat for current user
+  Future<void> muteChatForUser(String chatId, bool mute) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({
+            'mutedBy': mute
+                ? FieldValue.arrayUnion([currentUserId])
+                : FieldValue.arrayRemove([currentUserId]),
+          });
+    } catch (e) {
+      throw Exception('Error muting chat: ${e.toString()}');
+    }
+  }
+
+  // Update group description
+  Future<void> updateGroupDescription(
+      String chatId, String description) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({'groupDescription': description});
+    } catch (e) {
+      throw Exception('Error updating group description: ${e.toString()}');
+    }
+  }
+
+  // Get starred messages for a chat
+  Stream<List<MessageModel>> getStarredMessages(String chatId) {
+    return _firestore
+        .collection(AppConstants.chatsCollection)
+        .doc(chatId)
+        .collection(AppConstants.messagesCollection)
+        .where('isStarred', isEqualTo: true)
+        .snapshots()
+        .map((s) => s.docs.map((d) => MessageModel.fromMap(d.data())).toList());
+  }
+
+  // ── Typing indicator ──────────────────────────────────────────
+
+  Future<void> setTyping(String chatId, bool isTyping) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection('typing')
+          .doc(currentUserId)
+          .set({'isTyping': isTyping, 'updatedAt': FieldValue.serverTimestamp()});
+    } catch (e) {
+      developer.log('Error setting typing: $e');
+    }
+  }
+
+  Stream<List<String>> getTypingUsers(String chatId) {
+    return _firestore
+        .collection(AppConstants.chatsCollection)
+        .doc(chatId)
+        .collection('typing')
+        .where('isTyping', isEqualTo: true)
+        .snapshots()
+        .map((s) => s.docs
+            .map((d) => d.id)
+            .where((id) => id != currentUserId)
+            .toList());
+  }
+
+  // ── Reactions ─────────────────────────────────────────────────
+
+  Future<void> addReaction(
+      String chatId, String messageId, String emoji) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({
+            'reactions.$emoji': FieldValue.arrayUnion([currentUserId]),
+          });
+    } catch (e) {
+      throw Exception('Error adding reaction: ${e.toString()}');
+    }
+  }
+
+  Future<void> removeReaction(
+      String chatId, String messageId, String emoji) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .doc(messageId)
+          .update({
+            'reactions.$emoji': FieldValue.arrayRemove([currentUserId]),
+          });
+    } catch (e) {
+      throw Exception('Error removing reaction: ${e.toString()}');
+    }
+  }
+
+  // ── Disappearing messages ─────────────────────────────────────
+
+  /// Sets disappearing message timer for a chat (duration in seconds, 0 = off)
+  Future<void> setDisappearingMessages(String chatId, int seconds) async {
+    try {
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update({'disappearingSeconds': seconds});
+    } catch (e) {
+      throw Exception('Error setting disappearing messages: ${e.toString()}');
+    }
+  }
+
+  // ── Search messages ───────────────────────────────────────────
+
+  Future<List<MessageModel>> searchMessages(
+      String chatId, String query) async {
+    try {
+      final snap = await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .collection(AppConstants.messagesCollection)
+          .orderBy('timestamp', descending: true)
+          .get();
+
+      final lower = query.toLowerCase();
+      return snap.docs
+          .map((d) => MessageModel.fromMap(d.data()))
+          .where((m) =>
+              m.type == 'text' &&
+              m.content.toLowerCase().contains(lower) &&
+              !m.deletedFor.contains(currentUserId))
+          .toList();
+    } catch (e) {
+      developer.log('Error searching messages: $e');
+      return [];
+    }
   }
 }

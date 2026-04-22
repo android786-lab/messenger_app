@@ -16,6 +16,11 @@ class ChatModel {
   final bool isFavorite;
   final bool isLocked;
   final DateTime? pinnedTime;
+  final List<String> admins;
+  final String? groupDescription;
+  final List<String> mutedBy;
+  final int disappearingSeconds; // 0 = off
+  final String? createdBy; // uid of the original group creator
 
   ChatModel({
     required this.chatId,
@@ -33,6 +38,11 @@ class ChatModel {
     this.isFavorite = false,
     this.isLocked = false,
     this.pinnedTime,
+    this.admins = const [],
+    this.groupDescription,
+    this.mutedBy = const [],
+    this.disappearingSeconds = 0,
+    this.createdBy,
   });
 
   Map<String, dynamic> toMap() {
@@ -52,6 +62,11 @@ class ChatModel {
       'isFavorite': isFavorite,
       'isLocked': isLocked,
       'pinnedTime': pinnedTime != null ? Timestamp.fromDate(pinnedTime!) : null,
+      'admins': admins,
+      'groupDescription': groupDescription,
+      'mutedBy': mutedBy,
+      'disappearingSeconds': disappearingSeconds,
+      'createdBy': createdBy,
     };
   }
 
@@ -74,6 +89,11 @@ class ChatModel {
       pinnedTime: map['pinnedTime'] != null
           ? (map['pinnedTime'] as Timestamp).toDate()
           : null,
+      admins: List<String>.from(map['admins'] ?? []),
+      groupDescription: map['groupDescription'],
+      mutedBy: List<String>.from(map['mutedBy'] ?? []),
+      disappearingSeconds: map['disappearingSeconds'] ?? 0,
+      createdBy: map['createdBy'],
     );
   }
 
@@ -93,6 +113,11 @@ class ChatModel {
     bool? isFavorite,
     bool? isLocked,
     DateTime? pinnedTime,
+    List<String>? admins,
+    String? groupDescription,
+    List<String>? mutedBy,
+    int? disappearingSeconds,
+    String? createdBy,
   }) {
     return ChatModel(
       chatId: chatId ?? this.chatId,
@@ -110,6 +135,11 @@ class ChatModel {
       isFavorite: isFavorite ?? this.isFavorite,
       isLocked: isLocked ?? this.isLocked,
       pinnedTime: pinnedTime ?? this.pinnedTime,
+      admins: admins ?? this.admins,
+      groupDescription: groupDescription ?? this.groupDescription,
+      mutedBy: mutedBy ?? this.mutedBy,
+      disappearingSeconds: disappearingSeconds ?? this.disappearingSeconds,
+      createdBy: createdBy ?? this.createdBy,
     );
   }
 }

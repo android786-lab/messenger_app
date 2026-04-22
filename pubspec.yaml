@@ -71,6 +71,9 @@ dependencies:
   
   # App Lock & Biometrics
   local_auth: ^3.0.1
+  
+  # Sharing
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,7 @@ import 'controllers/app_lock_controller.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/block_controller.dart';
 import 'controllers/chat_controller.dart';
+import 'controllers/chat_settings_controller.dart';
 import 'controllers/contacts_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'core/theme/app_theme.dart';
@@ -36,6 +39,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeController()),
         ChangeNotifierProvider(create: (_) => BlockController()),
         ChangeNotifierProvider(create: (_) => AppLockController()),
+        ChangeNotifierProvider(create: (_) => ChatSettingsController()),
       ],
       child: Consumer<ThemeController>(
         builder: (context, themeController, child) {
@@ -63,19 +67,27 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
+  StreamSubscription? _authSub;
+
   @override
   void initState() {
     super.initState();
-    // Initialize app lock controller
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<AppLockController>(context, listen: false).initialize();
     });
 
-    // Listen to auth state once and initialize user
-    final authController = Provider.of<AuthController>(context, listen: false);
-    authController.authStateChanges.listen((user) {
+    // Single auth state subscription — cancelled on dispose
+    final authController =
+        Provider.of<AuthController>(context, listen: false);
+    _authSub = authController.authStateChanges.listen((user) {
       authController.initializeUser(user);
     });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
   }
 
   @override

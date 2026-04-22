@@ -34,12 +34,10 @@ class ChatTile extends StatefulWidget {
 
 class _ChatTileState extends State<ChatTile> {
   List<LocalContact> _contacts = [];
-  bool _contactsLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    // Defer loading to avoid setState during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadContacts();
     });
@@ -54,7 +52,6 @@ class _ChatTileState extends State<ChatTile> {
     if (mounted) {
       setState(() {
         _contacts = contactsController.contacts;
-        _contactsLoaded = true;
       });
     }
   }

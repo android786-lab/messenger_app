@@ -101,12 +101,13 @@ class AuthService {
     }
   }
 
-  // Update user online status
+  // Update user online status — also stamps lastSeen so stale presence can be detected
   Future<void> updateUserOnlineStatus(String uid, bool isOnline) async {
     try {
-      await _firestore.collection(AppConstants.usersCollection).doc(uid).update(
-        {'isOnline': isOnline, 'lastSeen': Timestamp.fromDate(DateTime.now())},
-      );
+      await _firestore.collection(AppConstants.usersCollection).doc(uid).update({
+        'isOnline': isOnline,
+        'lastSeen': Timestamp.fromDate(DateTime.now()),
+      });
     } catch (e) {
       developer.log('Error updating online status: $e');
     }
@@ -129,25 +130,84 @@ class AuthService {
     return null;
   }
 
-  // Search users by email
-  Future<List<UserModel>> searchUsersByEmail(String email) async {
+  // Search users by email, name, or phone — runs parallel queries and merges
+  Future<List<UserModel>> searchUsers(String query) async {
+    if (query.trim().isEmpty) return [];
     try {
-      QuerySnapshot querySnapshot = await _firestore
-          .collection(AppConstants.usersCollection)
-          .where('email', isGreaterThanOrEqualTo: email)
-          .where('email', isLessThan: '${email}z')
-          .limit(10)
-          .get();
+      final q = query.trim().toLowerCase();
+      final qDigits = q.replaceAll(RegExp(r'\D'), ''); // digits only for phone
 
-      return querySnapshot.docs
-          .map((doc) => UserModel.fromMap(doc.data() as Map<String, dynamic>))
-          .where((user) => user.uid != currentUser?.uid)
-          .toList();
+      // Run up to 3 queries in parallel
+      final futures = <Future<QuerySnapshot>>[];
+
+      // 1. Email prefix search
+      futures.add(
+        _firestore
+            .collection(AppConstants.usersCollection)
+            .where('email', isGreaterThanOrEqualTo: q)
+            .where('email', isLessThan: '${q}z')
+            .limit(10)
+            .get(),
+      );
+
+      // 2. Name prefix search (stored lowercase for case-insensitive match)
+      //    We also try the original-case query since names may be stored mixed-case
+      futures.add(
+        _firestore
+            .collection(AppConstants.usersCollection)
+            .where('name', isGreaterThanOrEqualTo: query.trim())
+            .where('name', isLessThan: '${query.trim()}z')
+            .limit(10)
+            .get(),
+      );
+
+      // 3. Phone search (digits only)
+      if (qDigits.isNotEmpty) {
+        futures.add(
+          _firestore
+              .collection(AppConstants.usersCollection)
+              .where('phone', isGreaterThanOrEqualTo: qDigits)
+              .where('phone', isLessThan: '${qDigits}9')
+              .limit(10)
+              .get(),
+        );
+      }
+
+      final snapshots = await Future.wait(futures);
+
+      // Merge and deduplicate
+      final seen = <String>{};
+      final results = <UserModel>[];
+      for (final snap in snapshots) {
+        for (final doc in snap.docs) {
+          final user =
+              UserModel.fromMap(doc.data() as Map<String, dynamic>);
+          // Exclude self and duplicates
+          if (user.uid != currentUser?.uid && seen.add(user.uid)) {
+            results.add(user);
+          }
+        }
+      }
+
+      // Client-side filter: keep only results that actually contain the query
+      // (Firestore prefix queries can return false positives at boundaries)
+      return results.where((u) {
+        final nameLower = u.name.toLowerCase();
+        final emailLower = u.email.toLowerCase();
+        final phoneDigits = (u.phone ?? '').replaceAll(RegExp(r'\D'), '');
+        return nameLower.contains(q) ||
+            emailLower.contains(q) ||
+            (qDigits.isNotEmpty && phoneDigits.contains(qDigits));
+      }).toList();
     } catch (e) {
       developer.log('Error searching users: $e');
       return [];
     }
   }
+
+  // Keep old method as alias for backward compatibility
+  Future<List<UserModel>> searchUsersByEmail(String email) =>
+      searchUsers(email);
 
   // Stream user online status in real-time
   Stream<UserModel?> streamUserById(String uid) {
@@ -169,16 +229,17 @@ class AuthService {
     String? name,
     String? phone,
     String? photoUrl,
+    String? about,
   }) async {
     try {
       final Map<String, dynamic> updates = {};
 
       if (name != null) updates['name'] = name;
       if (phone != null) {
-        // Normalize phone digits only for consistent lookup
         updates['phone'] = phone.replaceAll(RegExp(r'\D'), '');
       }
       if (photoUrl != null) updates['photoUrl'] = photoUrl;
+      if (about != null) updates['about'] = about;
 
       if (updates.isNotEmpty) {
         await _firestore
@@ -187,7 +248,6 @@ class AuthService {
             .update(updates);
       }
 
-      // Get updated user data
       DocumentSnapshot doc = await _firestore
           .collection(AppConstants.usersCollection)
           .doc(uid)

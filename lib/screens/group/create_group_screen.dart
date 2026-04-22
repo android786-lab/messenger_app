@@ -243,7 +243,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: CustomTextField(
-              hintText: 'Search users by email...',
+              hintText: 'Search by name, email or phone...',
               controller: _searchController,
               keyboardType: TextInputType.emailAddress,
               prefixIcon: Icon(

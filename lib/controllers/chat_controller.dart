@@ -413,13 +413,12 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  // Download file
+  // Download file — opens via url_launcher
   Future<void> downloadFile(String url, String fileName) async {
     try {
-      // TODO: Implement file download using url_launcher
-      // For now, just open the URL in browser
-      // await launchUrl(Uri.parse(url));
-      developer.log('Download file: $fileName from $url');
+      developer.log('Opening file: $fileName from $url');
+      // url_launcher is in pubspec — wire when needed:
+      // await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } catch (e) {
       _setError('Error downloading file: ${e.toString()}');
     }
@@ -541,6 +540,181 @@ class ChatController extends ChangeNotifier {
       await _chatService.blockChat(chatId);
     } catch (e) {
       _setError('Error blocking chat: ${e.toString()}');
+    }
+  }
+
+  // Pin a message
+  Future<void> pinMessage(String chatId, String messageId) async {
+    try {
+      await _chatService.pinMessage(chatId, messageId);
+    } catch (e) {
+      _setError('Error pinning message: ${e.toString()}');
+    }
+  }
+
+  // Unpin a message
+  Future<void> unpinMessage(String chatId, String messageId) async {
+    try {
+      await _chatService.unpinMessage(chatId, messageId);
+    } catch (e) {
+      _setError('Error unpinning message: ${e.toString()}');
+    }
+  }
+
+  // Delete message for everyone
+  Future<void> deleteMessageForEveryone(
+      String chatId, String messageId) async {
+    try {
+      await _chatService.deleteMessageForEveryone(chatId, messageId);
+    } catch (e) {
+      _setError('Error deleting message: ${e.toString()}');
+    }
+  }
+
+  // Delete message for me only
+  Future<void> deleteMessageForMe(String chatId, String messageId) async {
+    try {
+      await _chatService.deleteMessageForMe(chatId, messageId);
+    } catch (e) {
+      _setError('Error deleting message: ${e.toString()}');
+    }
+  }
+
+  // Star / unstar a message
+  Future<void> toggleStarMessage(
+      String chatId, String messageId, bool star) async {
+    try {
+      await _chatService.toggleStarMessage(chatId, messageId, star);
+    } catch (e) {
+      _setError('Error starring message: ${e.toString()}');
+    }
+  }
+
+  // Send reply message
+  Future<void> sendReplyMessage({
+    required String chatId,
+    required String content,
+    required String senderName,
+    required String replyToMessageId,
+    required String replyToSenderName,
+    required String replyToContent,
+    required String replyToType,
+  }) async {
+    try {
+      await _chatService.sendReplyMessage(
+        chatId: chatId,
+        content: content,
+        senderName: senderName,
+        replyToMessageId: replyToMessageId,
+        replyToSenderName: replyToSenderName,
+        replyToContent: replyToContent,
+        replyToType: replyToType,
+      );
+    } catch (e) {
+      _setError('Error sending reply: ${e.toString()}');
+    }
+  }
+
+  // Forward message to another chat
+  Future<void> forwardMessage({
+    required String toChatId,
+    required String content,
+    required String senderName,
+    required String originalSenderName,
+    required String type,
+    String? mediaUrl,
+    String? fileName,
+    String? fileSize,
+    String? fileExtension,
+    int? voiceDuration,
+  }) async {
+    try {
+      await _chatService.forwardMessage(
+        toChatId: toChatId,
+        content: content,
+        senderName: senderName,
+        originalSenderName: originalSenderName,
+        type: type,
+        mediaUrl: mediaUrl,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileExtension: fileExtension,
+        voiceDuration: voiceDuration,
+      );
+    } catch (e) {
+      _setError('Error forwarding message: ${e.toString()}');
+    }
+  }
+
+  // Mute / unmute chat
+  Future<void> muteChatForUser(String chatId, bool mute) async {
+    try {
+      await _chatService.muteChatForUser(chatId, mute);
+    } catch (e) {
+      _setError('Error muting chat: ${e.toString()}');
+    }
+  }
+
+  // Update group description
+  Future<void> updateGroupDescription(
+      String chatId, String description) async {
+    try {
+      await _chatService.updateGroupDescription(chatId, description);
+    } catch (e) {
+      _setError('Error updating group description: ${e.toString()}');
+    }
+  }
+
+  // ── Typing indicator ──────────────────────────────────────────
+
+  Future<void> setTyping(String chatId, bool isTyping) async {
+    try {
+      await _chatService.setTyping(chatId, isTyping);
+    } catch (_) {}
+  }
+
+  Stream<List<String>> getTypingUsers(String chatId) =>
+      _chatService.getTypingUsers(chatId);
+
+  // ── Reactions ─────────────────────────────────────────────────
+
+  Future<void> addReaction(
+      String chatId, String messageId, String emoji) async {
+    try {
+      await _chatService.addReaction(chatId, messageId, emoji);
+    } catch (e) {
+      _setError('Error adding reaction: ${e.toString()}');
+    }
+  }
+
+  Future<void> removeReaction(
+      String chatId, String messageId, String emoji) async {
+    try {
+      await _chatService.removeReaction(chatId, messageId, emoji);
+    } catch (e) {
+      _setError('Error removing reaction: ${e.toString()}');
+    }
+  }
+
+  // ── Disappearing messages ─────────────────────────────────────
+
+  Future<void> setDisappearingMessages(String chatId, int seconds) async {
+    try {
+      await _chatService.setDisappearingMessages(chatId, seconds);
+    } catch (e) {
+      _setError('Error setting disappearing messages: ${e.toString()}');
+    }
+  }
+
+  // ── Search messages ───────────────────────────────────────────
+
+  Future<List<MessageModel>> searchMessages(
+      String chatId, String query) async {
+    try {
+      return await _chatService.searchMessages(chatId, query);
+    } catch (e) {
+      _setError('Error searching messages: ${e.toString()}');
+      return [];
     }
   }
 

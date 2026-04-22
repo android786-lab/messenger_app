@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/auth_controller.dart';
 import '../../core/theme/app_theme.dart';
+import '../../services/storage_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -16,9 +18,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
+  late TextEditingController _aboutController;
 
   String? _photoUrl;
   bool _isLoading = false;
+  final StorageService _storageService = StorageService();
 
   @override
   void initState() {
@@ -30,6 +34,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _nameController = TextEditingController(text: user?.name ?? '');
     _phoneController = TextEditingController(text: user?.phone ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
+    _aboutController = TextEditingController(text: user?.about ?? '');
     _photoUrl = user?.photoUrl;
   }
 
@@ -38,6 +43,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _aboutController.dispose();
     super.dispose();
   }
 
@@ -56,6 +62,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ? null
           : _phoneController.text.trim(),
       photoUrl: _photoUrl,
+      about: _aboutController.text.trim().isEmpty
+          ? null
+          : _aboutController.text.trim(),
     );
 
     if (!mounted) return;
@@ -81,6 +90,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           backgroundColor: AppTheme.lightErrorColor,
         ),
       );
+    }
+  }
+
+  Future<void> _pickAndUploadPhoto(ImageSource source) async {
+    try {
+      setState(() => _isLoading = true);
+      final file = source == ImageSource.camera
+          ? await _storageService.pickImageFromCamera()
+          : await _storageService.pickImageFromGallery();
+      if (file == null) return;
+      final url = await _storageService.uploadProfilePicture(file);
+      if (mounted) setState(() => _photoUrl = url);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -125,12 +154,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                   ),
                   title: const Text('Take Photo'),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
-                    // TODO: Implement camera
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Camera coming soon')),
-                    );
+                    await _pickAndUploadPhoto(ImageSource.camera);
                   },
                 ),
                 ListTile(
@@ -146,14 +172,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                   ),
                   title: const Text('Choose from Gallery'),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
-                    // TODO: Implement gallery picker
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Gallery picker coming soon'),
-                      ),
-                    );
+                    await _pickAndUploadPhoto(ImageSource.gallery);
                   },
                 ),
                 if (_photoUrl != null)
@@ -325,6 +346,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
               const SizedBox(height: 20),
 
+              // About Field
+              _buildTextField(
+                controller: _aboutController,
+                label: 'About',
+                hintText: 'Hey there! I am using this app.',
+                prefixIcon: Icons.info_outline,
+                maxLines: 2,
+              ),
+
+              const SizedBox(height: 20),
+
               // Email Field (Read-only)
               _buildTextField(
                 controller: _emailController,
@@ -380,6 +412,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     String? Function(String?)? validator,
     bool readOnly = false,
     String? helperText,
+    int maxLines = 1,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -403,6 +436,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             keyboardType: keyboardType,
             validator: validator,
             readOnly: readOnly,
+            maxLines: maxLines,
             decoration: InputDecoration(
               hintText: hintText,
               hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),

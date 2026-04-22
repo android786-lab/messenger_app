@@ -147,3 +147,117 @@ service firebase.storage {
 - Detach listeners when not needed
 - Use appropriate query limits
 - Implement connection state monitoring
+
+# Firebase Database Schema
+
+## Collections
+
+### `users/{uid}`
+```
+uid: string
+email: string
+name: string
+phone: string (digits only, normalized)
+about: string?
+photoUrl: string?
+isOnline: bool
+lastSeen: timestamp
+createdAt: timestamp
+lastSeenPrivacy: 'everyone' | 'contacts' | 'nobody'
+profilePhotoPrivacy: 'everyone' | 'contacts' | 'nobody'
+aboutPrivacy: 'everyone' | 'contacts' | 'nobody'
+onlineStatusPrivacy: 'everyone' | 'contacts' | 'nobody'
+```
+
+### `users/{uid}/contacts/{contactId}`
+```
+id: string
+name: string
+phone: string
+email: string?
+photoUrl: string?
+address: string?
+company: string?
+jobTitle: string?
+notes: string?
+nickname: string?
+birthday: string? (ISO 8601)
+createdAt: string (ISO 8601)
+```
+
+### `chats/{chatId}`
+```
+chatId: string
+participants: string[]  (uids)
+lastMessage: string
+lastMessageType: 'text' | 'image' | 'voice' | 'file' | 'deleted'
+lastMessageTime: timestamp
+lastMessageSenderId: string
+unreadCount: { [uid]: number }
+isGroup: bool
+groupName: string?
+groupPhotoUrl: string?
+groupDescription: string?
+isPinned: bool
+isArchived: bool
+isFavorite: bool
+isLocked: bool
+pinnedTime: timestamp?
+admins: string[]  (uids — group only)
+mutedBy: string[]  (uids who muted this chat)
+disappearingSeconds: number  (0 = off)
+```
+
+### `chats/{chatId}/messages/{messageId}`
+```
+messageId: string
+senderId: string
+senderName: string
+content: string
+type: 'text' | 'image' | 'voice' | 'file' | 'deleted'
+timestamp: timestamp
+isRead: bool
+status: 'sent' | 'delivered' | 'read'
+mediaUrl: string?
+voiceDuration: number?  (seconds)
+fileName: string?
+fileSize: string?
+fileExtension: string?
+isPinned: bool
+isStarred: bool
+deletedFor: string[]  (uids — soft delete)
+replyTo: {
+  messageId: string
+  senderName: string
+  content: string
+  type: string
+}?
+forwardedFrom: string?  (original sender name)
+reactions: { [emoji]: string[] }  (emoji -> list of uids)
+expiresAt: timestamp?  (disappearing messages)
+```
+
+### `chats/{chatId}/typing/{uid}`
+```
+isTyping: bool
+updatedAt: serverTimestamp
+```
+
+### `blocked_users/{uid}`
+```
+blockedUsers: string[]  (uids)
+```
+
+## Firebase Storage Paths
+```
+profile_pictures/{uid}/{filename}
+chat_images/{chatId}/{filename}
+voice_messages/{chatId}/{filename}
+chat_files/{chatId}/{filename}
+```
+
+## Firestore Indexes Required
+- `chats`: `participants` (array-contains) + `lastMessageTime` (desc)
+- `messages`: `timestamp` (desc)
+- `messages`: `isStarred` (==) + `timestamp` (desc)
+- `messages`: `status` (in) — for mark-as-read queries
