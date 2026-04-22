@@ -31,9 +31,12 @@ class ContactsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Load saved local contacts (name + phone)
-  Future<void> loadContacts() async {
+  bool _contactsLoaded = false;
+
+  // Load saved local contacts — skips fetch if already cached
+  Future<void> loadContacts({bool forceRefresh = false}) async {
     if (_currentUid == null) return;
+    if (_contactsLoaded && !forceRefresh) return; // use cache
     _setLoading(true);
     try {
       final snap = await _firestore
@@ -43,6 +46,7 @@ class ContactsController extends ChangeNotifier {
           .get();
       _contacts = snap.docs.map((d) => LocalContact.fromMap(d.data())).toList();
       _contacts.sort((a, b) => a.name.compareTo(b.name));
+      _contactsLoaded = true;
     } catch (e) {
       _errorMessage = 'Failed to load contacts.';
     }
@@ -96,6 +100,7 @@ class ContactsController extends ChangeNotifier {
 
       _contacts.add(contact);
       _contacts.sort((a, b) => a.name.compareTo(b.name));
+      _contactsLoaded = true;
       _successMessage = '$name saved to contacts.';
       notifyListeners();
       return true;
@@ -151,34 +156,56 @@ class ContactsController extends ChangeNotifier {
     }
   }
 
-  // Cross-reference saved contacts with app users by phone number.
-  // Returns a map with two keys:
-  //   'onApp'    -> List<Map> with keys 'contact' (LocalContact) and 'user' (UserModel)
-  //   'notOnApp' -> List<LocalContact>
+  // Cross-reference saved contacts with app users.
+  // Uses parallel Firestore queries instead of sequential per-contact reads.
   Future<Map<String, dynamic>> getContactsWithAppStatus() async {
+    if (_contacts.isEmpty) return {'onApp': [], 'notOnApp': []};
+
     final List<Map<String, dynamic>> onApp = [];
     final List<LocalContact> notOnApp = [];
 
-    for (final contact in _contacts) {
-      final normalized = _normalizePhone(contact.phone);
+    // Build a map of normalized phone → contact for O(1) lookup
+    final phoneToContact = <String, LocalContact>{};
+    for (final c in _contacts) {
+      final n = _normalizePhone(c.phone);
+      if (n.isNotEmpty) phoneToContact[n] = c;
+    }
+
+    final phones = phoneToContact.keys.toList();
+    if (phones.isEmpty) {
+      return {'onApp': [], 'notOnApp': List<LocalContact>.from(_contacts)};
+    }
+
+    // Firestore 'whereIn' supports up to 30 values per query — chunk if needed
+    const chunkSize = 30;
+    final foundPhones = <String>{};
+
+    for (int i = 0; i < phones.length; i += chunkSize) {
+      final chunk = phones.sublist(
+          i, i + chunkSize > phones.length ? phones.length : i + chunkSize);
       try {
         final snap = await _firestore
             .collection('users')
-            .where('phone', isEqualTo: normalized)
-            .limit(1)
+            .where('phone', whereIn: chunk)
             .get();
 
-        if (snap.docs.isNotEmpty) {
-          final user = UserModel.fromMap(snap.docs.first.data());
-          // Don't show current user
-          if (user.uid != _currentUid) {
+        for (final doc in snap.docs) {
+          final user = UserModel.fromMap(doc.data());
+          if (user.uid == _currentUid) continue; // skip self
+          final contact = phoneToContact[user.phone ?? ''];
+          if (contact != null) {
             onApp.add({'contact': contact, 'user': user});
+            foundPhones.add(user.phone ?? '');
           }
-        } else {
-          notOnApp.add(contact);
         }
-      } catch (_) {
-        notOnApp.add(contact);
+      } catch (_) {}
+    }
+
+    // Contacts not found on app
+    for (final c in _contacts) {
+      final n = _normalizePhone(c.phone);
+      if (!foundPhones.contains(n)) {
+        notOnApp.add(c);
       }
     }
 

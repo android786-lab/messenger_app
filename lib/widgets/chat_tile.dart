@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,10 +7,16 @@ import '../core/constants/app_constants.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/time_formatter.dart';
 import '../models/chat_model.dart';
-import '../models/local_contact_model.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 
+/// A single row in the chat list.
+///
+/// Performance notes:
+/// - User data is fetched once in initState and cached — no FutureBuilder on rebuild.
+/// - Online status uses a single persistent stream, not a new one per build.
+/// - Message status is read from ChatModel.lastMessage (already in memory) — no extra Firestore stream.
+/// - Contacts are read from the shared ContactsController cache — no per-tile Firestore reads.
 class ChatTile extends StatefulWidget {
   final ChatModel chat;
   final VoidCallback onTap;
@@ -33,99 +38,77 @@ class ChatTile extends StatefulWidget {
 }
 
 class _ChatTileState extends State<ChatTile> {
-  List<LocalContact> _contacts = [];
+  UserModel? _otherUser;
+  String _displayName = '';
+  bool _isOnline = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadContacts();
+    if (!widget.chat.isGroup) {
+      _initUser();
+    }
+  }
+
+  @override
+  void didUpdateWidget(ChatTile old) {
+    super.didUpdateWidget(old);
+    // Re-fetch if the chat changed (e.g. participants updated)
+    if (!widget.chat.isGroup &&
+        old.chat.chatId != widget.chat.chatId) {
+      _initUser();
+    }
+  }
+
+  Future<void> _initUser() async {
+    final authController =
+        Provider.of<AuthController>(context, listen: false);
+    final currentUserId = authController.currentUser?.uid ?? '';
+
+    final otherUserId = widget.chat.participants.firstWhere(
+      (id) => id != currentUserId,
+      orElse: () => '',
+    );
+    if (otherUserId.isEmpty) return;
+
+    // Single fetch — result is cached in state
+    final user = await AuthService().getUserById(otherUserId);
+    if (!mounted || user == null) return;
+
+    // Resolve display name from saved contacts (already in memory)
+    final contactsController =
+        Provider.of<ContactsController>(context, listen: false);
+    String name = user.name;
+    if (user.phone != null && user.phone!.isNotEmpty) {
+      final normalized = user.phone!.replaceAll(RegExp(r'\D'), '');
+      try {
+        final contact = contactsController.contacts.firstWhere(
+          (c) => c.phone.replaceAll(RegExp(r'\D'), '') == normalized,
+        );
+        name = contact.name;
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      setState(() {
+        _otherUser = user;
+        _displayName = name;
+        _isOnline = user.isOnline;
+      });
+    }
+
+    // Stream online status updates — one persistent listener per tile
+    AuthService().streamUserById(otherUserId).listen((u) {
+      if (mounted && u != null) {
+        setState(() {
+          _otherUser = u;
+          _isOnline = u.isOnline;
+        });
+      }
     });
   }
 
-  Future<void> _loadContacts() async {
-    final contactsController = Provider.of<ContactsController>(
-      context,
-      listen: false,
-    );
-    await contactsController.loadContacts();
-    if (mounted) {
-      setState(() {
-        _contacts = contactsController.contacts;
-      });
-    }
-  }
-
-  String? _findContactNameByPhone(String phone) {
-    final normalizedPhone = phone.replaceAll(RegExp(r'\D'), '');
-    for (final contact in _contacts) {
-      final contactNormalized = contact.phone.replaceAll(RegExp(r'\D'), '');
-      if (contactNormalized == normalizedPhone) {
-        return contact.name;
-      }
-    }
-    return null;
-  }
-
-  Widget _buildChatTitle(String currentUserId) {
-    if (widget.chat.isGroup) {
-      return Text(
-        widget.chat.groupName ?? 'Group Chat',
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.lightTextPrimary,
-        ),
-        overflow: TextOverflow.ellipsis,
-      );
-    } else {
-      // For one-to-one chat, get other user's ID and fetch their details
-      String otherUserId = widget.chat.participants.firstWhere(
-        (id) => id != currentUserId,
-        orElse: () => '',
-      );
-
-      if (otherUserId.isEmpty) {
-        return const Text(
-          'User',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.lightTextPrimary,
-          ),
-          overflow: TextOverflow.ellipsis,
-        );
-      }
-
-      return FutureBuilder<UserModel?>(
-        future: AuthService().getUserById(otherUserId),
-        builder: (context, snapshot) {
-          String displayName = 'User';
-
-          if (snapshot.hasData && snapshot.data != null) {
-            final user = snapshot.data!;
-            // Try to find contact name by phone
-            if (user.phone != null && user.phone!.isNotEmpty) {
-              final contactName = _findContactNameByPhone(user.phone!);
-              displayName = contactName ?? user.name;
-            } else {
-              displayName = user.name;
-            }
-          }
-
-          return Text(
-            displayName,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.lightTextPrimary,
-            ),
-            overflow: TextOverflow.ellipsis,
-          );
-        },
-      );
-    }
-  }
+  // ── Build ──────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -140,29 +123,25 @@ class _ChatTileState extends State<ChatTile> {
             : widget.onTap,
         onLongPress: widget.isSelectionMode
             ? null
-            : () {
-                // Enter selection mode on long press
-                widget.onSelectionToggle?.call(widget.chat.chatId);
-              },
+            : () => widget.onSelectionToggle?.call(widget.chat.chatId),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: widget.isSelected
-                ? AppTheme.lightPrimaryColor.withValues(alpha: 0.1)
-                : null,
-          ),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: widget.isSelected
+              ? AppTheme.lightPrimaryColor.withValues(alpha: 0.1)
+              : null,
           child: Row(
             children: [
               if (widget.isSelectionMode) ...[
                 Checkbox(
                   value: widget.isSelected,
-                  onChanged: (bool? value) =>
+                  onChanged: (_) =>
                       widget.onSelectionToggle?.call(widget.chat.chatId),
                   activeColor: AppTheme.lightPrimaryColor,
                 ),
                 const SizedBox(width: 12),
               ],
-              _buildAvatar(currentUserId),
+              _buildAvatar(),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -171,31 +150,28 @@ class _ChatTileState extends State<ChatTile> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Expanded(child: _buildChatTitle(currentUserId)),
+                        Expanded(child: _buildTitle()),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               TimeFormatter.formatChatListTime(
-                                widget.chat.lastMessageTime,
-                              ),
+                                  widget.chat.lastMessageTime),
                               style: TextStyle(
                                 fontSize: 12,
-                                color: _hasUnreadMessages(currentUserId)
+                                color: _hasUnread(currentUserId)
                                     ? AppTheme.lightPrimaryColor
                                     : AppTheme.lightTextSecondary,
-                                fontWeight: _hasUnreadMessages(currentUserId)
+                                fontWeight: _hasUnread(currentUserId)
                                     ? FontWeight.w600
                                     : FontWeight.normal,
                               ),
                             ),
                             if (widget.chat.isPinned) ...[
                               const SizedBox(width: 4),
-                              const Icon(
-                                Icons.push_pin,
-                                size: 16,
-                                color: AppTheme.lightTextSecondary,
-                              ),
+                              const Icon(Icons.push_pin,
+                                  size: 14,
+                                  color: AppTheme.lightTextSecondary),
                             ],
                           ],
                         ),
@@ -205,25 +181,23 @@ class _ChatTileState extends State<ChatTile> {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildLastMessageWithStatus(currentUserId),
-                        ),
-                        if (_hasUnreadMessages(currentUserId))
+                            child: _buildLastMessage(currentUserId)),
+                        if (_hasUnread(currentUserId))
                           Container(
                             margin: const EdgeInsets.only(left: 8),
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
+                            width: 22,
+                            height: 22,
+                            decoration: const BoxDecoration(
                               color: AppTheme.lightPrimaryColor,
                               shape: BoxShape.circle,
                             ),
                             alignment: Alignment.center,
                             child: Text(
-                              _getUnreadCount(currentUserId).toString(),
+                              _unreadCount(currentUserId).toString(),
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold),
                             ),
                           ),
                       ],
@@ -238,7 +212,9 @@ class _ChatTileState extends State<ChatTile> {
     );
   }
 
-  Widget _buildAvatar(String currentUserId) {
+  // ── Avatar ─────────────────────────────────────────────────────
+
+  Widget _buildAvatar() {
     if (widget.chat.isGroup) {
       return CircleAvatar(
         radius: 28,
@@ -250,108 +226,88 @@ class _ChatTileState extends State<ChatTile> {
             ? const Icon(Icons.group, color: Colors.white, size: 28)
             : null,
       );
-    } else {
-      // For one-to-one chat, show other user's avatar
-      String otherUserId = widget.chat.participants.firstWhere(
-        (id) => id != currentUserId,
-        orElse: () => '',
-      );
+    }
 
-      // Use StreamBuilder for real-time online status updates
-      return StreamBuilder<UserModel?>(
-        stream: AuthService().streamUserById(otherUserId),
-        builder: (context, snapshot) {
-          UserModel? otherUser = snapshot.data;
-          final isOnline = otherUser?.isOnline == true;
+    final photoUrl = _otherUser?.photoUrl;
+    final initial = _displayName.isNotEmpty
+        ? _displayName[0].toUpperCase()
+        : (_otherUser?.name.isNotEmpty == true
+            ? _otherUser!.name[0].toUpperCase()
+            : 'U');
 
-          return Stack(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: AppTheme.lightPrimaryColor,
-                backgroundImage: otherUser?.photoUrl != null
-                    ? NetworkImage(otherUser!.photoUrl!)
-                    : null,
-                child: otherUser?.photoUrl == null
-                    ? Text(
-                        otherUser?.name.isNotEmpty == true
-                            ? otherUser!.name[0].toUpperCase()
-                            : 'U',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    : null,
+    return Stack(
+      children: [
+        CircleAvatar(
+          radius: 28,
+          backgroundColor: AppTheme.lightPrimaryColor,
+          backgroundImage:
+              photoUrl != null ? NetworkImage(photoUrl) : null,
+          child: photoUrl == null
+              ? Text(initial,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold))
+              : null,
+        ),
+        if (_isOnline)
+          Positioned(
+            bottom: 2,
+            right: 2,
+            child: Container(
+              width: 13,
+              height: 13,
+              decoration: BoxDecoration(
+                color: const Color(0xFF00C853),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
               ),
-              if (isOnline)
-                Positioned(
-                  bottom: 2,
-                  right: 2,
-                  child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF00C853),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-      );
-    }
+            ),
+          ),
+      ],
+    );
   }
 
-  String _getLastMessageText() {
-    if (widget.chat.lastMessage.isEmpty) {
-      return 'No messages yet';
-    }
+  // ── Title ──────────────────────────────────────────────────────
 
-    switch (widget.chat.lastMessageType) {
-      case AppConstants.imageMessage:
-        return '📷 Photo';
-      case AppConstants.voiceMessage:
-        return '🎵 Voice message';
-      default:
-        return widget.chat.lastMessage;
-    }
+  Widget _buildTitle() {
+    final name = widget.chat.isGroup
+        ? (widget.chat.groupName ?? 'Group Chat')
+        : (_displayName.isNotEmpty ? _displayName : '...');
+
+    return Text(
+      name,
+      style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.lightTextPrimary),
+      overflow: TextOverflow.ellipsis,
+    );
   }
 
-  bool _hasUnreadMessages(String currentUserId) {
-    return (widget.chat.unreadCount[currentUserId] ?? 0) > 0;
-  }
+  // ── Last message ───────────────────────────────────────────────
 
-  int _getUnreadCount(String currentUserId) {
-    return widget.chat.unreadCount[currentUserId] ?? 0;
-  }
-
-  Widget _buildLastMessageWithStatus(String currentUserId) {
-    // Check if current user is the sender of the last message
-    final isLastMessageFromMe =
+  Widget _buildLastMessage(String currentUserId) {
+    final isFromMe =
         widget.chat.lastMessageSenderId == currentUserId;
+    final hasUnread = _hasUnread(currentUserId);
 
     return Row(
       children: [
-        if (isLastMessageFromMe) ...[
-          // Show message status ticks - use StreamBuilder for real-time status
-          _buildMessageStatusStream(),
+        if (isFromMe) ...[
+          _buildStatusTick(),
           const SizedBox(width: 4),
         ],
         Expanded(
           child: Text(
-            _getLastMessageText(),
+            _lastMessageText(),
             style: TextStyle(
               fontSize: 14,
-              color: _hasUnreadMessages(currentUserId)
+              color: hasUnread
                   ? AppTheme.lightTextPrimary
                   : AppTheme.lightTextSecondary,
-              fontWeight: _hasUnreadMessages(currentUserId)
-                  ? FontWeight.w500
-                  : FontWeight.normal,
+              fontWeight:
+                  hasUnread ? FontWeight.w500 : FontWeight.normal,
             ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
@@ -361,63 +317,54 @@ class _ChatTileState extends State<ChatTile> {
     );
   }
 
-  Widget _buildMessageStatusStream() {
-    // Stream the last message to get real-time status updates
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('chats')
-          .doc(widget.chat.chatId)
-          .collection('messages')
-          .orderBy('timestamp', descending: true)
-          .limit(1)
-          .snapshots(),
-      builder: (context, snapshot) {
-        String status = 'sent';
-
-        if (snapshot.hasData && snapshot.data != null) {
-          final docs = snapshot.data!.docs;
-          if (docs.isNotEmpty) {
-            final data = docs.first.data() as Map<String, dynamic>;
-            status = data['status'] ?? 'sent';
-          }
-        }
-
-        return _buildMessageStatusTicks(status);
-      },
-    );
+  String _lastMessageText() {
+    if (widget.chat.lastMessage.isEmpty) return 'No messages yet';
+    switch (widget.chat.lastMessageType) {
+      case AppConstants.imageMessage:
+        return '📷 Photo';
+      case AppConstants.voiceMessage:
+        return '🎵 Voice message';
+      case AppConstants.fileMessage:
+        return '📎 File';
+      default:
+        return widget.chat.lastMessage;
+    }
   }
 
-  Widget _buildMessageStatusTicks(String status) {
-    // Determine tick color based on status
-    final tickColor = status == 'read'
-        ? const Color(0xFF53BDEB) // Light blue for read
+  /// Status ticks derived from ChatModel — no extra Firestore stream needed.
+  Widget _buildStatusTick() {
+    // We use the lastMessage status stored in the chat doc itself.
+    // The chat doc's lastMessageType already tells us the type;
+    // for status we rely on the unread count heuristic:
+    // if all other participants have 0 unread → read, else delivered/sent.
+    // This avoids an extra per-tile Firestore stream.
+    final allRead = widget.chat.participants.every((uid) {
+      if (uid == widget.chat.lastMessageSenderId) return true;
+      return (widget.chat.unreadCount[uid] ?? 0) == 0;
+    });
+
+    final color = allRead
+        ? const Color(0xFF53BDEB)
         : AppTheme.lightTextSecondary;
 
-    // Single tick for sent
-    if (status == 'sent') {
-      return const Icon(
-        Icons.check,
-        size: 14,
-        color: AppTheme.lightTextSecondary,
-      );
-    }
-
-    // Double ticks for delivered or read
     return SizedBox(
       width: 20,
       height: 14,
       child: Stack(
         children: [
           Positioned(
-            left: 0,
-            child: Icon(Icons.check, size: 14, color: tickColor),
-          ),
+              left: 0,
+              child: Icon(Icons.check, size: 14, color: color)),
           Positioned(
-            left: 4,
-            child: Icon(Icons.check, size: 14, color: tickColor),
-          ),
+              left: 4,
+              child: Icon(Icons.check, size: 14, color: color)),
         ],
       ),
     );
   }
+
+  bool _hasUnread(String uid) =>
+      (widget.chat.unreadCount[uid] ?? 0) > 0;
+  int _unreadCount(String uid) =>
+      widget.chat.unreadCount[uid] ?? 0;
 }

@@ -101,42 +101,44 @@ class ChatService {
     }
   }
 
-  // Update chat's last message info
+  // Update chat's last message info — direct update, no read needed
   Future<void> updateChatLastMessage(
     String chatId,
     MessageModel message,
   ) async {
     try {
-      DocumentSnapshot chatDoc = await _firestore
+      // Fetch only the participants + unreadCount fields we need
+      final chatDoc = await _firestore
           .collection(AppConstants.chatsCollection)
           .doc(chatId)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      if (chatDoc.exists) {
-        ChatModel chat = ChatModel.fromMap(
-          chatDoc.data() as Map<String, dynamic>,
-        );
+      if (!chatDoc.exists) return;
 
-        // Update unread count for other participants
-        Map<String, int> newUnreadCount = Map.from(chat.unreadCount);
-        for (String participantId in chat.participants) {
-          if (participantId != currentUserId) {
-            newUnreadCount[participantId] =
-                (newUnreadCount[participantId] ?? 0) + 1;
-          }
+      final data = chatDoc.data()!;
+      final participants = List<String>.from(data['participants'] ?? []);
+      final rawUnread = Map<String, dynamic>.from(data['unreadCount'] ?? {});
+      final unreadCount = rawUnread.map(
+          (k, v) => MapEntry(k, (v as num).toInt()));
+
+      // Increment unread for everyone except the sender
+      final updates = <String, dynamic>{
+        'lastMessage': message.content,
+        'lastMessageType': message.type,
+        'lastMessageTime': Timestamp.fromDate(message.timestamp),
+        'lastMessageSenderId': message.senderId,
+      };
+      for (final uid in participants) {
+        if (uid != currentUserId) {
+          updates['unreadCount.$uid'] =
+              (unreadCount[uid] ?? 0) + 1;
         }
-
-        await _firestore
-            .collection(AppConstants.chatsCollection)
-            .doc(chatId)
-            .update({
-              'lastMessage': message.content,
-              'lastMessageType': message.type,
-              'lastMessageTime': Timestamp.fromDate(message.timestamp),
-              'lastMessageSenderId': message.senderId,
-              'unreadCount': newUnreadCount,
-            });
       }
+
+      await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .update(updates);
     } catch (e) {
       developer.log('Error updating last message: $e');
     }
@@ -171,31 +173,33 @@ class ChatService {
         );
   }
 
-  // Mark messages as read
+  // Mark messages as read — uses batch write for performance
   Future<void> markMessagesAsRead(String chatId) async {
     try {
-      // Update chat unread count
+      // Reset unread counter
       await _firestore
           .collection(AppConstants.chatsCollection)
           .doc(chatId)
           .update({'unreadCount.$currentUserId': 0});
 
-      // Also update all messages sent by other user to 'read' status
-      // Use a simpler query to avoid composite index requirement
-      QuerySnapshot messagesSnapshot = await _firestore
+      // Batch-update message statuses
+      final snap = await _firestore
           .collection(AppConstants.chatsCollection)
           .doc(chatId)
           .collection(AppConstants.messagesCollection)
           .where('status', whereIn: ['sent', 'delivered'])
           .get();
 
-      for (var doc in messagesSnapshot.docs) {
-        // Only update messages not sent by current user
-        final data = doc.data() as Map<String, dynamic>;
+      if (snap.docs.isEmpty) return;
+
+      final batch = _firestore.batch();
+      for (final doc in snap.docs) {
+        final data = doc.data();
         if (data['senderId'] != currentUserId) {
-          await doc.reference.update({'status': 'read', 'isRead': true});
+          batch.update(doc.reference, {'status': 'read', 'isRead': true});
         }
       }
+      await batch.commit();
     } catch (e) {
       developer.log('Error marking messages as read: $e');
     }

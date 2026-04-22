@@ -687,19 +687,23 @@ class _ChatScreenState extends State<ChatScreen> {
                 return ListView.builder(
                   controller: _scrollController,
                   reverse: true,
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: true,
                   itemCount: chatController.messages.length,
                   itemBuilder: (context, index) {
                     final message = chatController.messages[index];
                     final isMe = message.senderId == currentUserId;
-                    return MessageBubble(
-                      message: message,
-                      isMe: isMe,
-                      chatId: widget.chatId,
-                      currentUserId: currentUserId,
-                      fontSize: chatSettings.fontSize,
-                      onReply: (msg) =>
-                          setState(() => _replyingTo = msg),
-                      onForward: _showForwardDialog,
+                    return RepaintBoundary(
+                      child: MessageBubble(
+                        message: message,
+                        isMe: isMe,
+                        chatId: widget.chatId,
+                        currentUserId: currentUserId,
+                        fontSize: chatSettings.fontSize,
+                        onReply: (msg) =>
+                            setState(() => _replyingTo = msg),
+                        onForward: _showForwardDialog,
+                      ),
                     );
                   },
                 );
