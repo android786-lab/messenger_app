@@ -107,7 +107,7 @@ lib/
 
 ## 5. Screenshots (App UI)
 
-<img width="300" height="800" alt="Main dashbord" src="https://github.com/user-attachments/assets/5d84b5bc-a670-4031-95bc-960ca41438c3" />
+<img width="200" height="600" alt="Main dashbord" src="https://github.com/user-attachments/assets/5d84b5bc-a670-4031-95bc-960ca41438c3" />
 
 
 ---
