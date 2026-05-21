@@ -107,8 +107,6 @@ lib/
 
 ## 5. Screenshots (App UI)
 
-*Neeche wali images original size ka **50%** (width & height) hain — README halki rahe.*
-
 ### Chats & Messaging
 
 | Chats list | Chat conversation |
