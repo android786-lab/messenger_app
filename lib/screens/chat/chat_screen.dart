@@ -14,6 +14,8 @@ import '../../models/message_model.dart';
 import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
+import '../../features/calls/call_helpers.dart';
+import '../../services/presence_service.dart';
 import '../../widgets/message_bubble.dart';
 import '../contacts/contact_info_screen.dart';
 import '../group/group_info_screen.dart';
@@ -62,6 +64,27 @@ class _ChatScreenState extends State<ChatScreen> {
       _setupOnlineStatusListener();
     });
     _messageController.addListener(_onTextChanged);
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 120) {
+      Provider.of<ChatController>(context, listen: false)
+          .loadOlderMessages(widget.chatId);
+    }
+  }
+
+  String? _otherUserId() {
+    if (widget.isGroup) return null;
+    final authController = Provider.of<AuthController>(context, listen: false);
+    final currentUserId = authController.currentUser?.uid ?? '';
+    var otherUserId = widget.chatId.split('_').first;
+    if (otherUserId == currentUserId) {
+      otherUserId = widget.chatId.split('_').last;
+    }
+    return otherUserId.isEmpty ? null : otherUserId;
   }
 
   void _onTextChanged() {
@@ -169,6 +192,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingTimer?.cancel();
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
     // Clear typing on exit
@@ -190,9 +214,10 @@ class _ChatScreenState extends State<ChatScreen> {
     if (widget.isGroup) return '';
     // Stale-presence guard: if lastSeen > 5 min ago, treat as offline
     // even if isOnline flag wasn't cleared (e.g. app was force-killed)
-    final isActuallyOnline = _isOtherUserOnline &&
-        _otherUserLastSeen != null &&
-        DateTime.now().difference(_otherUserLastSeen!).inMinutes < 5;
+    final isActuallyOnline = PresenceService.isUserActuallyOnline(
+      isOnlineFlag: _isOtherUserOnline,
+      lastSeen: _otherUserLastSeen,
+    );
 
     if (isActuallyOnline) return 'Online';
     if (_otherUserLastSeen != null) {
@@ -689,8 +714,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   reverse: true,
                   addAutomaticKeepAlives: false,
                   addRepaintBoundaries: true,
-                  itemCount: chatController.messages.length,
+                  itemCount: chatController.messages.length +
+                      (chatController.isLoadingOlder ? 1 : 0),
                   itemBuilder: (context, index) {
+                    if (chatController.isLoadingOlder &&
+                        index == chatController.messages.length) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
                     final message = chatController.messages[index];
                     final isMe = message.senderId == currentUserId;
                     return RepaintBoundary(
@@ -898,11 +937,29 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         IconButton(
           icon: const Icon(Icons.videocam, color: AppTheme.lightTextPrimary),
-          onPressed: () {},
+          onPressed: () {
+            final otherId = _otherUserId();
+            if (otherId == null) return;
+            startCallWithUser(
+              context: context,
+              targetUserId: otherId,
+              targetUserName: _displayName,
+              isVideo: true,
+            );
+          },
         ),
         IconButton(
           icon: const Icon(Icons.call, color: AppTheme.lightTextPrimary),
-          onPressed: () {},
+          onPressed: () {
+            final otherId = _otherUserId();
+            if (otherId == null) return;
+            startCallWithUser(
+              context: context,
+              targetUserId: otherId,
+              targetUserName: _displayName,
+              isVideo: false,
+            );
+          },
         ),
         IconButton(
           icon: const Icon(Icons.more_vert, color: AppTheme.lightTextPrimary),

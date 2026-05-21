@@ -2,154 +2,149 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../config/app_dependencies.dart';
 import '../core/constants/app_constants.dart';
+import '../repositories/media_storage_repository.dart';
 
+/// Facade for media pick/compress + Supabase upload.
+/// Firebase Storage is no longer used for new uploads.
 class StorageService {
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  StorageService({MediaStorageRepository? mediaRepository})
+      : _media = mediaRepository ?? AppDependencies.instance.mediaRepository;
+
+  final MediaStorageRepository _media;
   final ImagePicker _imagePicker = ImagePicker();
 
-  // Pick image from gallery
+  Future<File?> _compressImage(File file) async {
+    try {
+      final dir = await getTemporaryDirectory();
+      final target = '${dir.path}/compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        target,
+        quality: 80,
+        minWidth: 1024,
+        minHeight: 1024,
+      );
+      if (result != null) return File(result.path);
+    } catch (e) {
+      developer.log('Image compress fallback: $e');
+    }
+    return file;
+  }
+
   Future<File?> pickImageFromGallery() async {
     try {
-      final XFile? pickedFile = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 80,
-      );
-
-      if (pickedFile != null) {
-        File imageFile = File(pickedFile.path);
-
-        // Check file size
-        int fileSize = await imageFile.length();
-        if (fileSize > AppConstants.maxImageSize) {
-          throw Exception('Image size too large. Maximum size is 5MB.');
-        }
-
-        return imageFile;
+      final picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (picked == null) return null;
+      final file = File(picked.path);
+      final size = await file.length();
+      if (size > AppConstants.maxImageSize) {
+        throw Exception('Image size too large. Maximum size is 5MB.');
       }
+      return _compressImage(file);
     } catch (e) {
       throw Exception('Error picking image: ${e.toString()}');
     }
-    return null;
   }
 
-  // Pick image from camera
   Future<File?> pickImageFromCamera() async {
     try {
-      final XFile? pickedFile = await _imagePicker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 80,
-      );
-
-      if (pickedFile != null) {
-        File imageFile = File(pickedFile.path);
-
-        // Check file size
-        int fileSize = await imageFile.length();
-        if (fileSize > AppConstants.maxImageSize) {
-          throw Exception('Image size too large. Maximum size is 5MB.');
-        }
-
-        return imageFile;
+      final picked = await _imagePicker.pickImage(source: ImageSource.camera);
+      if (picked == null) return null;
+      final file = File(picked.path);
+      final size = await file.length();
+      if (size > AppConstants.maxImageSize) {
+        throw Exception('Image size too large. Maximum size is 5MB.');
       }
+      return _compressImage(file);
     } catch (e) {
       throw Exception('Error taking photo: ${e.toString()}');
     }
-    return null;
   }
 
-  // Upload image to Firebase Storage
-  Future<String> uploadImage(File imageFile, String path) async {
-    try {
-      String fileName = DateTime.now().millisecondsSinceEpoch.toString();
-      Reference ref = _storage.ref().child('$path/$fileName.jpg');
-
-      UploadTask uploadTask = ref.putFile(imageFile);
-      TaskSnapshot snapshot = await uploadTask;
-
-      String downloadUrl = await snapshot.ref.getDownloadURL();
-      return downloadUrl;
-    } catch (e) {
-      throw Exception('Error uploading image: ${e.toString()}');
-    }
+  Future<String> uploadProfilePicture(
+    File imageFile, {
+    required String userId,
+    void Function(double progress)? onProgress,
+  }) async {
+    final compressed = await _compressImage(imageFile) ?? imageFile;
+    return _media.uploadProfileImage(
+      userId: userId,
+      file: compressed,
+      onProgress: onProgress,
+    );
   }
 
-  // Upload chat image
-  Future<String> uploadChatImage(File imageFile) async {
-    return await uploadImage(imageFile, AppConstants.chatImagesPath);
+  Future<String> uploadChatImage(
+    File imageFile, {
+    required String chatId,
+    void Function(double progress)? onProgress,
+  }) async {
+    final compressed = await _compressImage(imageFile) ?? imageFile;
+    return _media.uploadChatImage(
+      chatId: chatId,
+      file: compressed,
+      onProgress: onProgress,
+    );
   }
 
-  // Upload profile picture
-  Future<String> uploadProfilePicture(File imageFile) async {
-    return await uploadImage(imageFile, AppConstants.profilePicsPath);
+  Future<String> uploadVoiceMessage(
+    File audioFile, {
+    required String chatId,
+    void Function(double progress)? onProgress,
+  }) async {
+    return _media.uploadVoiceMessage(
+      chatId: chatId,
+      file: audioFile,
+      onProgress: onProgress,
+    );
   }
 
-  // Upload voice message
-  Future<String> uploadVoiceMessage(File audioFile) async {
-    try {
-      String fileName = DateTime.now().millisecondsSinceEpoch.toString();
-      Reference ref = _storage.ref().child(
-        '${AppConstants.voiceMessagesPath}/$fileName.m4a',
-      );
-
-      UploadTask uploadTask = ref.putFile(audioFile);
-      TaskSnapshot snapshot = await uploadTask;
-
-      String downloadUrl = await snapshot.ref.getDownloadURL();
-      return downloadUrl;
-    } catch (e) {
-      throw Exception('Error uploading voice message: ${e.toString()}');
-    }
+  Future<String> uploadFile(
+    File file, {
+    required String chatId,
+    void Function(double progress)? onProgress,
+  }) async {
+    final ext = file.path.split('.').last.toLowerCase();
+    return _media.uploadChatFile(
+      chatId: chatId,
+      file: file,
+      extension: ext,
+      onProgress: onProgress,
+    );
   }
 
-  // Delete file from storage
   Future<void> deleteFile(String downloadUrl) async {
-    try {
-      Reference ref = _storage.refFromURL(downloadUrl);
-      await ref.delete();
-    } catch (e) {
-      developer.log('Error deleting file: $e');
-    }
+    await _media.deleteByPublicUrl(downloadUrl);
   }
 
-  // Get temporary directory for audio recording
   Future<String> getTemporaryPath() async {
-    Directory tempDir = await getTemporaryDirectory();
+    final tempDir = await getTemporaryDirectory();
     return tempDir.path;
   }
 
-  // Create audio file path
   String createAudioFilePath() {
-    String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    return '$timestamp.m4a';
+    return '${DateTime.now().millisecondsSinceEpoch}.m4a';
   }
 
-  // Pick file from device
   Future<File?> pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: AppConstants.supportedFileTypes,
         allowMultiple: false,
       );
-
       if (result != null && result.files.single.path != null) {
-        File file = File(result.files.single.path!);
-
-        // Check file size
-        int fileSize = await file.length();
+        final file = File(result.files.single.path!);
+        final fileSize = await file.length();
         if (fileSize > AppConstants.maxFileSize) {
           throw Exception('File size too large. Maximum size is 10MB.');
         }
-
         return file;
       }
     } catch (e) {
@@ -158,31 +153,10 @@ class StorageService {
     return null;
   }
 
-  // Upload file to Firebase Storage
-  Future<String> uploadFile(File file) async {
-    try {
-      String fileName = DateTime.now().millisecondsSinceEpoch.toString();
-      String fileExtension = file.path.split('.').last.toLowerCase();
-      Reference ref = _storage.ref().child(
-        '${AppConstants.filesPath}/$fileName.$fileExtension',
-      );
-
-      UploadTask uploadTask = ref.putFile(file);
-      TaskSnapshot snapshot = await uploadTask;
-
-      String downloadUrl = await snapshot.ref.getDownloadURL();
-      return downloadUrl;
-    } catch (e) {
-      throw Exception('Error uploading file: ${e.toString()}');
-    }
-  }
-
-  // Get file info (name, size, extension)
   Map<String, String> getFileInfo(File file) {
-    String fileName = file.path.split('/').last;
-    String fileExtension = file.path.split('.').last.toLowerCase();
-    int fileSize = file.lengthSync();
-
+    final fileName = file.path.split(Platform.pathSeparator).last;
+    final fileExtension = file.path.split('.').last.toLowerCase();
+    final fileSize = file.lengthSync();
     return {
       'name': fileName,
       'extension': fileExtension,
@@ -190,7 +164,6 @@ class StorageService {
     };
   }
 
-  // Format file size for display
   String _formatFileSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -200,7 +173,6 @@ class StorageService {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
-  // Get file icon based on extension
   String getFileIcon(String extension) {
     switch (extension.toLowerCase()) {
       case 'pdf':

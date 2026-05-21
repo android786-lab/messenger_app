@@ -23,7 +23,11 @@ class ChatController extends ChangeNotifier {
 
   List<ChatModel> _chats = [];
   List<MessageModel> _messages = [];
+  List<MessageModel> _olderMessages = [];
+  bool _hasMoreMessages = true;
+  bool _isLoadingOlder = false;
   bool _isLoading = false;
+  double _uploadProgress = 0;
   bool _isRecording = false;
   bool _isPlaying = false;
   String? _errorMessage;
@@ -35,7 +39,17 @@ class ChatController extends ChangeNotifier {
 
   // Getters
   List<ChatModel> get chats => _chats;
-  List<MessageModel> get messages => _messages;
+  List<MessageModel> get messages {
+    final byId = <String, MessageModel>{};
+    for (final m in [..._messages, ..._olderMessages]) {
+      byId[m.messageId] = m;
+    }
+    return byId.values.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  }
+  bool get hasMoreMessages => _hasMoreMessages;
+  bool get isLoadingOlder => _isLoadingOlder;
+  double get uploadProgress => _uploadProgress;
   bool get isLoading => _isLoading;
   bool get isRecording => _isRecording;
   bool get isPlaying => _isPlaying;
@@ -103,7 +117,15 @@ class ChatController extends ChangeNotifier {
       _setLoading(true);
 
       // Upload image to Firebase Storage
-      String imageUrl = await _storageService.uploadChatImage(imageFile);
+      String imageUrl = await _storageService.uploadChatImage(
+        imageFile,
+        chatId: chatId,
+        onProgress: (p) {
+          _uploadProgress = p;
+          notifyListeners();
+        },
+      );
+      _uploadProgress = 0;
 
       // Send message with image URL
       await _chatService.sendMessage(
@@ -214,7 +236,15 @@ class ChatController extends ChangeNotifier {
         File audioFile = File(_recordingPath!);
 
         // Upload audio to Firebase Storage
-        String audioUrl = await _storageService.uploadVoiceMessage(audioFile);
+        String audioUrl = await _storageService.uploadVoiceMessage(
+          audioFile,
+          chatId: chatId,
+          onProgress: (p) {
+            _uploadProgress = p;
+            notifyListeners();
+          },
+        );
+        _uploadProgress = 0;
 
         // Send voice message
         await _chatService.sendMessage(
@@ -297,21 +327,55 @@ class ChatController extends ChangeNotifier {
     );
   }
 
-  // Listen to chat messages
+  // Listen to chat messages (recent page + realtime)
   void listenToChatMessages(String chatId) {
-    // Cancel existing subscription before creating a new one
+    _olderMessages = [];
+    _hasMoreMessages = true;
     _messagesSubscription?.cancel();
-    _messagesSubscription = _chatService
-        .getChatMessages(chatId)
-        .listen(
-          (messages) {
-            _messages = messages;
-            notifyListeners();
-          },
-          onError: (error) {
-            _setError('Error loading messages: ${error.toString()}');
-          },
+    _messagesSubscription = _chatService.getChatMessages(chatId).listen(
+      (messages) {
+        _messages = messages;
+        notifyListeners();
+      },
+      onError: (error) {
+        _setError('Error loading messages: ${error.toString()}');
+      },
+    );
+  }
+
+  Future<void> loadOlderMessages(String chatId) async {
+    if (_isLoadingOlder || !_hasMoreMessages) return;
+    final all = [..._messages, ..._olderMessages];
+    if (all.isEmpty) return;
+
+    final oldest = all.reduce(
+      (a, b) => a.timestamp.isBefore(b.timestamp) ? a : b,
+    );
+
+    try {
+      _isLoadingOlder = true;
+      notifyListeners();
+      final older = await _chatService.loadOlderMessages(
+        chatId,
+        beforeTimestamp: oldest.timestamp,
+      );
+      if (older.isEmpty) {
+        _hasMoreMessages = false;
+      } else {
+        final existingIds = all.map((m) => m.messageId).toSet();
+        _olderMessages.addAll(
+          older.where((m) => !existingIds.contains(m.messageId)),
         );
+        if (older.length < ChatService.defaultMessagePageSize) {
+          _hasMoreMessages = false;
+        }
+      }
+    } catch (e) {
+      _setError('Error loading older messages: ${e.toString()}');
+    } finally {
+      _isLoadingOlder = false;
+      notifyListeners();
+    }
   }
 
   // Mark messages as read
@@ -374,7 +438,15 @@ class ChatController extends ChangeNotifier {
       Map<String, String> fileInfo = _storageService.getFileInfo(file);
 
       // Upload file to Firebase Storage
-      String fileUrl = await _storageService.uploadFile(file);
+      String fileUrl = await _storageService.uploadFile(
+        file,
+        chatId: chatId,
+        onProgress: (p) {
+          _uploadProgress = p;
+          notifyListeners();
+        },
+      );
+      _uploadProgress = 0;
 
       // Send message with file URL
       await _chatService.sendMessage(

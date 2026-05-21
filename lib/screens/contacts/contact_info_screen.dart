@@ -6,6 +6,7 @@ import '../../controllers/contacts_controller.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/local_contact_model.dart';
 import '../../models/user_model.dart';
+import '../../features/calls/call_helpers.dart';
 import '../../services/auth_service.dart';
 import 'edit_contact_screen.dart';
 
@@ -283,13 +284,29 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 _ActionButton(
                                   icon: Icons.call_outlined,
                                   label: 'Audio',
-                                  onTap: () {},
+                                  onTap: () {
+                                    if (_user == null) return;
+                                    startCallWithUser(
+                                      context: context,
+                                      targetUserId: _user!.uid,
+                                      targetUserName: name,
+                                      isVideo: false,
+                                    );
+                                  },
                                 ),
                                 const SizedBox(width: 24),
                                 _ActionButton(
                                   icon: Icons.videocam_outlined,
                                   label: 'Video',
-                                  onTap: () {},
+                                  onTap: () {
+                                    if (_user == null) return;
+                                    startCallWithUser(
+                                      context: context,
+                                      targetUserId: _user!.uid,
+                                      targetUserName: name,
+                                      isVideo: true,
+                                    );
+                                  },
                                 ),
                                 const SizedBox(width: 24),
                                 _ActionButton(

@@ -11,6 +11,8 @@ class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  static const int defaultMessagePageSize = 40;
+
   String get currentUserId => _auth.currentUser?.uid ?? '';
 
   // Get or create chat between two users
@@ -72,18 +74,30 @@ class ChatService {
           .doc()
           .id;
 
+      final chatDoc = await _firestore
+          .collection(AppConstants.chatsCollection)
+          .doc(chatId)
+          .get();
+      final disappearingSeconds =
+          (chatDoc.data()?['disappearingSeconds'] as num?)?.toInt() ?? 0;
+      final now = DateTime.now();
+      final expiresAt = disappearingSeconds > 0
+          ? now.add(Duration(seconds: disappearingSeconds))
+          : null;
+
       MessageModel message = MessageModel(
         messageId: messageId,
         senderId: currentUserId,
         senderName: senderName,
         content: content,
         type: type,
-        timestamp: DateTime.now(),
+        timestamp: now,
         mediaUrl: mediaUrl,
         voiceDuration: voiceDuration,
         fileName: fileName,
         fileSize: fileSize,
         fileExtension: fileExtension,
+        expiresAt: expiresAt,
       );
 
       // Add message to subcollection
@@ -158,19 +172,41 @@ class ChatService {
         );
   }
 
-  // Get messages stream for a chat
-  Stream<List<MessageModel>> getChatMessages(String chatId) {
+  // Real-time stream for the most recent page (efficient listener)
+  Stream<List<MessageModel>> getChatMessages(
+    String chatId, {
+    int limit = defaultMessagePageSize,
+  }) {
     return _firestore
         .collection(AppConstants.chatsCollection)
         .doc(chatId)
         .collection(AppConstants.messagesCollection)
         .orderBy('timestamp', descending: true)
+        .limit(limit)
         .snapshots()
         .map(
           (snapshot) => snapshot.docs
               .map((doc) => MessageModel.fromMap(doc.data()))
               .toList(),
         );
+  }
+
+  /// Older messages for infinite scroll (before [beforeTimestamp]).
+  Future<List<MessageModel>> loadOlderMessages(
+    String chatId, {
+    required DateTime beforeTimestamp,
+    int limit = defaultMessagePageSize,
+  }) async {
+    final snap = await _firestore
+        .collection(AppConstants.chatsCollection)
+        .doc(chatId)
+        .collection(AppConstants.messagesCollection)
+        .orderBy('timestamp', descending: true)
+        .startAfter([Timestamp.fromDate(beforeTimestamp)])
+        .limit(limit)
+        .get();
+
+    return snap.docs.map((d) => MessageModel.fromMap(d.data())).toList();
   }
 
   // Mark messages as read — uses batch write for performance

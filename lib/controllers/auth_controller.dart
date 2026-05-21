@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../config/app_dependencies.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 
@@ -74,6 +75,12 @@ class AuthController extends ChangeNotifier {
       _setLoading(true);
       _userStreamSub?.cancel();
       _userStreamSub = null;
+      final uid = _currentUser?.uid;
+      AppDependencies.instance.presenceService.stop();
+      if (uid != null) {
+        await AppDependencies.instance.notificationRepository
+            .unregisterDevice(uid);
+      }
       await _authService.signOut();
       _currentUser = null;
       notifyListeners();
@@ -92,9 +99,9 @@ class AuthController extends ChangeNotifier {
         final userModel = await _authService.getUserById(firebaseUser.uid);
         _currentUser = userModel;
         if (userModel != null) {
-          // Mark online in Firestore
-          await _authService.updateUserOnlineStatus(firebaseUser.uid, true);
-          // Keep _currentUser live — reflects profile edits from any device
+          AppDependencies.instance.presenceService.start(firebaseUser.uid);
+          await AppDependencies.instance.notificationRepository
+              .registerDevice();
           _startUserStream(firebaseUser.uid);
         }
       } catch (e) {

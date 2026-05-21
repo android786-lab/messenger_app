@@ -576,11 +576,25 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _buildActionButton(
-                              Icons.call_outlined, 'Audio', () {}),
+                          _buildActionButton(Icons.call_outlined, 'Audio', () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Group voice calls: use a dedicated group room (coming soon).',
+                                ),
+                              ),
+                            );
+                          }),
                           const SizedBox(width: 24),
-                          _buildActionButton(
-                              Icons.videocam_outlined, 'Video', () {}),
+                          _buildActionButton(Icons.videocam_outlined, 'Video', () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Group video calls: use a dedicated group room (coming soon).',
+                                ),
+                              ),
+                            );
+                          }),
                           if (isAdmin) ...[
                             const SizedBox(width: 24),
                             _buildActionButton(

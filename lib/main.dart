@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'config/app_dependencies.dart';
+import 'config/env_config.dart';
 import 'controllers/app_lock_controller.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/block_controller.dart';
@@ -12,17 +14,21 @@ import 'controllers/chat_settings_controller.dart';
 import 'controllers/contacts_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'core/theme/app_theme.dart';
+import 'features/calls/call_controller.dart';
 import 'firebase_options.dart';
 import 'screens/auth/app_lock_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/chat/chat_list_screen.dart';
+import 'screens/chat/chat_screen.dart';
+import 'services/chat_service.dart';
+
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Firebase
+  await EnvConfig.load();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
+  await AppDependencies.instance.initialize();
   runApp(const MyApp());
 }
 
@@ -40,10 +46,12 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => BlockController()),
         ChangeNotifierProvider(create: (_) => AppLockController()),
         ChangeNotifierProvider(create: (_) => ChatSettingsController()),
+        ChangeNotifierProvider(create: (_) => CallController()),
       ],
       child: Consumer<ThemeController>(
         builder: (context, themeController, child) {
           return MaterialApp(
+            navigatorKey: rootNavigatorKey,
             title: 'Facebook Messenger',
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
@@ -74,9 +82,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<AppLockController>(context, listen: false).initialize();
+      _wireNotificationNavigation();
     });
 
-    // Single auth state subscription — cancelled on dispose
     final authController =
         Provider.of<AuthController>(context, listen: false);
     _authSub = authController.authStateChanges.listen((user) {
@@ -84,9 +92,33 @@ class _AuthWrapperState extends State<AuthWrapper> {
     });
   }
 
+  void _wireNotificationNavigation() {
+    AppDependencies.instance.notificationRepository.setChatNavigationHandler(
+      (chatId) async {
+        if (chatId == null || chatId.isEmpty) return;
+        final nav = rootNavigatorKey.currentState;
+        if (nav == null) return;
+        final chatDoc = await ChatService().getChatStream(chatId).first;
+        if (chatDoc == null) return;
+        nav.push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(
+              chatId: chatId,
+              isGroup: chatDoc.isGroup,
+              chatTitle: chatDoc.isGroup
+                  ? (chatDoc.groupName ?? 'Group')
+                  : 'Chat',
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _authSub?.cancel();
+    AppDependencies.instance.presenceService.dispose();
     super.dispose();
   }
 
@@ -111,7 +143,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
           return const LoginScreen();
         }
 
-        // User is authenticated, check app lock
         if (appLockController.isAppLockEnabled) {
           return FutureBuilder<bool>(
             future: appLockController.needsReauthentication(),
@@ -130,17 +161,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
               }
 
               if (snapshot.data == true) {
-                // Need authentication
                 return const AppLockScreen();
               }
 
-              // Authentication not needed, show main app
               return const ChatListScreen();
             },
           );
         }
 
-        // App lock not enabled, show main app
         return const ChatListScreen();
       },
     );

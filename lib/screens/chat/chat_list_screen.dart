@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/auth_controller.dart';
+import '../../features/calls/call_controller.dart';
 import '../../controllers/block_controller.dart';
 import '../../controllers/chat_controller.dart';
 import '../../controllers/contacts_controller.dart';
@@ -48,6 +49,12 @@ class _ChatListScreenState extends State<ChatListScreen>
       // ChatListScreen is only shown when authenticated)
       Provider.of<BlockController>(context, listen: false)
           .initializeBlockedUsers();
+      final uid =
+          Provider.of<AuthController>(context, listen: false).currentUser?.uid;
+      if (uid != null) {
+        Provider.of<CallController>(context, listen: false)
+            .listenForIncomingCalls(context, uid);
+      }
     });
   }
 

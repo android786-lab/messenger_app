@@ -100,7 +100,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ? await _storageService.pickImageFromCamera()
           : await _storageService.pickImageFromGallery();
       if (file == null) return;
-      final url = await _storageService.uploadProfilePicture(file);
+      final uid = context.read<AuthController>().currentUser?.uid;
+      if (uid == null) return;
+      final url = await _storageService.uploadProfilePicture(
+        file,
+        userId: uid,
+        onProgress: (_) {},
+      );
       if (mounted) setState(() => _photoUrl = url);
     } catch (e) {
       if (mounted) {
