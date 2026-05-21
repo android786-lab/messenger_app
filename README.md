@@ -1,16 +1,225 @@
-# facebook_messanger
+# Messenger App — Project Report
 
-A new Flutter project.
+**Course / Project:** Software Quality — WhatsApp-Style Mobile Messenger  
+**Version:** 1.1.0+2  
+**Platform:** Flutter (Android / iOS / Desktop targets)  
+**Backend:** Firebase (Auth, Firestore, Storage, FCM) + optional Supabase media + Zego calls
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 1. Project Overview
 
-A few resources to get you started if this is your first Flutter project:
+Yeh app ek **WhatsApp-inspired messenger** hai jo real-time chat, groups, stories (status), voice/video calls, privacy settings, aur app lock provide karti hai. UI blue accent (`#0084FF`) ke sath WhatsApp jaisa layout follow karti hai — 3 bottom tabs: **Chats**, **Stories**, **Calls**.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+| Item | Detail |
+|------|--------|
+| App name | Messenger App (`facebook_messanger`) |
+| Auth | Email / password (Firebase Auth) |
+| Database | Cloud Firestore |
+| Media | Firebase Storage (+ Supabase optional) |
+| Push | Firebase Cloud Messaging |
+| Calls | ZegoUIKit (voice & video 1:1) |
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## 2. Main Features (Implemented)
+
+### Chats
+- 1:1 aur **group** conversations
+- Message types: **text, image, voice, file**
+- **Reply**, **forward**, **emoji reactions**, **pin**, **star**
+- Delete for me / for everyone
+- Typing indicator, read/delivered status
+- Chat list filters: All, Unread, Favorites, Groups, Archived
+- Pin, mute, archive, favorite, search in chat
+- Voice recording, camera/gallery, file picker
+- Chat wallpaper & font size (`Chat Settings`)
+
+### Stories (Status)
+- Text, photo, aur video stories (24-hour expiry)
+- Viewers list (kis ne dekha)
+- Delete status / delete all statuses
+- Stories privacy (Everyone / Contacts / Nobody)
+- Search aur menu (Privacy, Settings)
+
+### Calls
+- 1:1 **voice** aur **video** (Zego — `.env` keys required)
+- Call history screen + Calls tab
+- Search calls, keypad, schedule reminder (UI)
+- Clear all call logs
+
+### Contacts & Profile
+- Saved contacts, user search, contact info screen
+- Profile view/edit, profile photo upload
+- Audio / video shortcuts from contact info
+
+### Privacy & Security
+- Last seen, profile photo, about, online status, stories privacy
+- Blocked users list
+- **App Lock:** 4-digit PIN + optional biometric
+- Dark mode
+
+### Notifications
+- FCM push on new messages
+- Local notifications + tap to open chat
+
+---
+
+## 3. Technology Stack
+
+```
+Flutter 3.x  |  Provider (state)  |  Firebase Suite  |  Supabase (optional)
+ZegoUIKit    |  flutter_sound     |  cached_network_image  |  local_auth
+```
+
+| Layer | Packages / Services |
+|-------|---------------------|
+| UI | Material Design, custom theme (`AppTheme`) |
+| State | `provider` — Auth, Chat, Story, Call, Theme, AppLock controllers |
+| Backend | `firebase_auth`, `cloud_firestore`, `firebase_storage`, `firebase_messaging` |
+| Calls | `zego_uikit_prebuilt_call` |
+| Security | `flutter_secure_storage`, `crypto` (PIN hash), `local_auth` |
+
+---
+
+## 4. Project Structure
+
+```
+lib/
+├── main.dart
+├── controllers/          # Auth, Chat, Story, Call, AppLock, Theme, ...
+├── services/             # Firebase, storage, notifications, privacy, ...
+├── models/               # User, Chat, Message, Story, Call, ...
+├── screens/
+│   ├── home/             # 3-tab shell (Chats | Stories | Calls)
+│   ├── chat/             # Chat list & conversation
+│   ├── group/            # Create group, group info
+│   ├── contacts/         # Contacts CRUD
+│   ├── settings/         # Privacy, app lock, chat appearance
+│   └── auth/             # Login, signup, PIN screens
+├── features/
+│   ├── stories/          # Stories tab, viewer, text story
+│   └── calls/            # Calls tab, call helper
+└── widgets/              # Chat tile, message bubble, menus
+```
+
+---
+
+## 5. Screenshots (App UI)
+
+*Neeche wali images original size ka **50%** (width & height) hain — README halki rahe.*
+
+### Chats & Messaging
+
+| Chats list | Chat conversation |
+|:---:|:---:|
+| ![Chats](docs/screenshots/01_chats.png) | ![Chat](docs/screenshots/02_chat.png) |
+| Search, filters, FAB | Messages, reactions, read ticks, media input |
+
+| Contact info | Call history |
+|:---:|:---:|
+| ![Contact Info](docs/screenshots/03_contact_info.png) | ![Call History](docs/screenshots/04_call_history.png) |
+| Audio / video / search shortcuts | Outgoing voice & video log |
+
+### Stories
+
+| Stories tab | Story viewer |
+|:---:|:---:|
+| ![Stories](docs/screenshots/05_stories.png) | ![Story Viewer](docs/screenshots/06_story_viewer.png) |
+| Add status, camera FAB | Text status, progress bars, viewers menu |
+
+### Settings & Profile
+
+| Settings | Settings (Dark mode) |
+|:---:|:---:|
+| ![Settings](docs/screenshots/07_settings.png) | ![Settings Dark](docs/screenshots/08_settings_dark.png) |
+
+| Profile | Privacy |
+|:---:|:---:|
+| ![Profile](docs/screenshots/09_profile.png) | ![Privacy](docs/screenshots/10_privacy.png) |
+
+| App Lock PIN | Chat settings |
+|:---:|:---:|
+| ![App Lock](docs/screenshots/11_app_lock.png) | ![Chat Settings](docs/screenshots/12_chat_settings.png) |
+
+---
+
+## 6. Comparison with Real WhatsApp (Summary)
+
+| Area | WhatsApp | This project |
+|------|----------|--------------|
+| Chat & groups | Full | **~65%** — core messaging strong |
+| Stories / Status | Full | **~70%** — text/photo/video + viewers |
+| Calls | Full + incoming | **~35%** — Zego 1:1; weak incoming/group |
+| E2E encryption | Yes | **No** (UI text only; Firestore plain text) |
+| Communities / Channels | Yes | **No** |
+| Backup / multi-device | Yes | **No** |
+
+**Conclusion:** App **WhatsApp-style MVP** hai — daily messaging, status, aur basic calls ke liye suitable; production WhatsApp replacement nahi jab tak E2E, incoming calls, aur backup add na hon.
+
+---
+
+## 7. Setup & Run
+
+### Prerequisites
+- Flutter SDK 3.9+
+- Firebase project (Auth, Firestore, Storage, FCM)
+- Optional: Supabase URL/keys, Zego App ID & Sign in `.env`
+
+### Steps
+
+```bash
+cd messenger_app
+flutter pub get
+# Add google-services.json (Android) & GoogleService-Info.plist (iOS)
+# Create .env from example with Firebase / Zego / Supabase keys
+flutter run
+```
+
+### Firestore rules
+Deploy `firestore.rules` from project root (Firebase Console → Firestore → Rules → Publish).  
+**Do not** keep old open rule `match /{document=**} { allow read, write: if request.auth != null; }` — replace entirely.
+
+### Release APK (example)
+```bash
+flutter build apk --release
+```
+
+---
+
+## 8. Known Limitations
+
+- End-to-end encryption **implemented nahi** (privacy screen par text display hai)
+- Incoming call UI / signaling incomplete
+- Group calls nahi
+- Phone contact sync nahi (manual saved contacts)
+- Cloud backup / restore nahi
+- Disappearing messages partial (setting save; har message par apply weak)
+
+---
+
+## 9. Documentation Files (Repo)
+
+| File | Purpose |
+|------|---------|
+| `FIREBASE_SETUP.md` | Firebase configuration |
+| `SUPABASE_SETUP.md` | Supabase media setup |
+| `ZEGO_SETUP.md` | Voice/video calls |
+| `SECURITY_GUIDE.md` | Security notes |
+| `firestore.rules` | Firestore security rules |
+
+---
+
+## 10. Version History
+
+| Version | Notes |
+|---------|-------|
+| 1.1.0+2 | 3-tab UI, Stories, Calls tab, app lock, privacy, profile photo fixes |
+| Earlier | Firebase chat MVP, groups, reactions |
+
+---
+
+<p align="center">
+  <b>Messenger App — SoftwareConstruction and quality Project</b><br>
+  <sub>Flutter · Firebase · WhatsApp-inspired UI</sub>
+</p>
