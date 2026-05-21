@@ -107,38 +107,8 @@ lib/
 
 ## 5. Screenshots (App UI)
 
-### Chats & Messaging
+<img width="702" height="1600" alt="Main dashbord" src="https://github.com/user-attachments/assets/5d84b5bc-a670-4031-95bc-960ca41438c3" />
 
-| Chats list | Chat conversation |
-|:---:|:---:|
-| ![Chats](docs/screenshots/01_chats.png) | ![Chat](docs/screenshots/02_chat.png) |
-| Search, filters, FAB | Messages, reactions, read ticks, media input |
-
-| Contact info | Call history |
-|:---:|:---:|
-| ![Contact Info](docs/screenshots/03_contact_info.png) | ![Call History](docs/screenshots/04_call_history.png) |
-| Audio / video / search shortcuts | Outgoing voice & video log |
-
-### Stories
-
-| Stories tab | Story viewer |
-|:---:|:---:|
-| ![Stories](docs/screenshots/05_stories.png) | ![Story Viewer](docs/screenshots/06_story_viewer.png) |
-| Add status, camera FAB | Text status, progress bars, viewers menu |
-
-### Settings & Profile
-
-| Settings | Settings (Dark mode) |
-|:---:|:---:|
-| ![Settings](docs/screenshots/07_settings.png) | ![Settings Dark](docs/screenshots/08_settings_dark.png) |
-
-| Profile | Privacy |
-|:---:|:---:|
-| ![Profile](docs/screenshots/09_profile.png) | ![Privacy](docs/screenshots/10_privacy.png) |
-
-| App Lock PIN | Chat settings |
-|:---:|:---:|
-| ![App Lock](docs/screenshots/11_app_lock.png) | ![Chat Settings](docs/screenshots/12_chat_settings.png) |
 
 ---
 
