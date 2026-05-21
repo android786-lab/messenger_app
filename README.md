@@ -107,7 +107,8 @@ lib/
 
 ## 5. Screenshots (App UI)
 
-<img width="200" height="600" alt="Main dashbord" src="https://github.com/user-attachments/assets/5d84b5bc-a670-4031-95bc-960ca41438c3" />
+<img width="200" height="600" alt="Main dashbord" src="https://github.com/user-attachments/assets/5d84b5bc-a670-4031-95bc-960ca41438c3" /><img width="200" height="600" alt="WhatsApp Image 2026-05-21 at 11 53 39" src="https://github.com/user-attachments/assets/3e6a444d-2b14-4938-a35e-55ce75dc2e24" />
+
 
 
 ---
